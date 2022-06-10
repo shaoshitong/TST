@@ -186,6 +186,7 @@ class PolicyEnv(object):
             val_reward = -(loss - self.begin_vloss) + (top1 - self.begin_vtop1) / 10
             self.begin_vloss = self.momentum * loss + (1 - self.momentum) * self.begin_vloss if self.begin_vloss!=0 else loss
             self.begin_vtop1 = self.momentum * top1 + (1 - self.momentum) * self.begin_vtop1 if self.begin_vtop1!=0 else top1
+            self.wandb.log({'train_reward':train_reward,'val_reward':val_reward,'fix_reward':reward})
             reward = train_reward + val_reward + reward
             self.replay_buffer.add(status,[action1,action2],reward,next_status,done=False)
             self.episode+=reward
