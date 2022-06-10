@@ -230,7 +230,6 @@ class PolicyEnv(object):
             vtop1=self.run_one_val_epoch()
             self.wandb.log({'train_loss':tloss,'train_top1':ttop1,'val_top1':vtop1},self.epoch)
             self.epoch+=1
-            self.log.flush()
             if self.best_acc<vtop1:
                 self.best_acc=vtop1
                 path=self.model_save_path[0:-8]
@@ -244,6 +243,7 @@ class PolicyEnv(object):
                 }
                 torch.save(dict,self.model_save_path)
         self.ff.close()
+        self.log.flush()
         self.wandb.finish()
 
 
