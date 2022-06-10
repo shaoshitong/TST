@@ -47,6 +47,8 @@ epoch:
   240
 warmup_epoch:
   0
+expand:
+  20
 amp:
   True
 scheduler:

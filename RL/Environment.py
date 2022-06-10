@@ -70,6 +70,7 @@ class PolicyEnv(object):
         self.sample_num = yaml['sample_num']
         self.minimal_size=yaml['minimal_size']
         self.model_save_path=yaml['model_save_path']
+        self.expand=yaml['expand']
         self.wandb=wandb
         self.reset_momentum()
         self.momentum = 0.999
@@ -180,13 +181,14 @@ class PolicyEnv(object):
             status=self.status # (14,)
             action1,action2=self.SAC.take_action(status)
             next_status, reward = self.step(action1,action2)
+            reward=reward*self.expand
             top1,loss = self.run_one_train_batch_size(batch_idx, input, target)
-            train_reward = -(loss - self.begin_tloss) + (top1 - self.begin_ttop1) / 10
+            train_reward =( -(loss - self.begin_tloss) + (top1 - self.begin_ttop1) / 10)*self.expand
             self.begin_tloss = self.momentum * loss + (1 - self.momentum) * self.begin_tloss if self.begin_tloss!=0 else loss
             self.begin_ttop1 = self.momentum * top1 + (1 - self.momentum) * self.begin_ttop1 if self.begin_ttop1!=0 else top1
             vinput, vtarget = self.generate_val_sample(self.valloader.dataset)
             top1, loss = self.run_one_val_batch_size(vinput, vtarget)
-            val_reward = -(loss - self.begin_vloss) + (top1 - self.begin_vtop1) / 10
+            val_reward = (-(loss - self.begin_vloss) + (top1 - self.begin_vtop1) / 10 )*self.expand
             self.begin_vloss = self.momentum * loss + (1 - self.momentum) * self.begin_vloss if self.begin_vloss!=0 else loss
             self.begin_vtop1 = self.momentum * top1 + (1 - self.momentum) * self.begin_vtop1 if self.begin_vtop1!=0 else top1
             t_train_reward+=train_reward
