@@ -173,6 +173,9 @@ class PolicyEnv(object):
         self.student_model.train()
         self.log.train(len_dataset=len(self.dataloader))
         self.episode=0
+        t_train_reward=0.
+        t_val_reward=0.
+        t_fix_reward=0.
         for batch_idx, (input, target) in enumerate(self.dataloader):
             status=self.status # (14,)
             action1,action2=self.SAC.take_action(status)
@@ -186,7 +189,9 @@ class PolicyEnv(object):
             val_reward = -(loss - self.begin_vloss) + (top1 - self.begin_vtop1) / 10
             self.begin_vloss = self.momentum * loss + (1 - self.momentum) * self.begin_vloss if self.begin_vloss!=0 else loss
             self.begin_vtop1 = self.momentum * top1 + (1 - self.momentum) * self.begin_vtop1 if self.begin_vtop1!=0 else top1
-            self.wandb.log({'train_reward':train_reward,'val_reward':val_reward,'fix_reward':reward})
+            t_train_reward+=train_reward
+            t_val_reward+=val_reward
+            t_fix_reward+=reward
             reward = train_reward + val_reward + reward
             self.replay_buffer.add(status,[action1,action2],reward,next_status,done=False)
             self.episode+=reward
@@ -194,6 +199,8 @@ class PolicyEnv(object):
         train_acc, train_loss = self.log.epoch_state["top_1"] / self.log.epoch_state["steps"], self.log.epoch_state[
             "loss"] / self.log.epoch_state["steps"]
         use_time = round((time.time() - start_time) / 60, 2)
+        t_train_reward,t_val_reward,t_fix_reward=t_train_reward/len(self.dataloader),t_val_reward/len(self.dataloader),t_fix_reward/len(self.dataloader)
+        self.wandb.log({'train_reward': t_train_reward, 'val_reward': t_val_reward, 'fix_reward': t_fix_reward},step=self.epoch)
         self.ff.write(f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss}, min:{use_time}\n")
         return train_acc,train_loss,self.episode
 
@@ -228,7 +235,7 @@ class PolicyEnv(object):
             ttop1,tloss,_=self.run_one_train_epoch()
             self.scheduler_step()
             vtop1=self.run_one_val_epoch()
-            self.wandb.log({'train_loss':tloss,'train_top1':ttop1,'val_top1':vtop1},self.epoch)
+            self.wandb.log({'train_loss':tloss,'train_top1':ttop1,'val_top1':vtop1},step=self.epoch)
             self.epoch+=1
             if self.best_acc<vtop1:
                 self.best_acc=vtop1
