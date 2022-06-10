@@ -11,10 +11,8 @@ import numpy as np
 import torchvision
 import torchvision.transforms as transforms
 import os,sys
-print(os.getcwd())
 import wandb
 
-wandb.init(project="RLDCD", entity="seushanshan")
 
 sys.path.append(os.path.join(os.getcwd()))
 import models,losses,datas,utils
@@ -46,10 +44,11 @@ if __name__=="__main__":
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.fastest = False
+    wandb.init(project="RLDCD", entity="seushanshan")
     if yaml_config['amp']:
         scaler = torch.cuda.amp.GradScaler()
-    tnet:nn.Module=getattr(models,yaml_config['tarch'])(num_classes=yaml_config['num_classes'])
-    net:nn.Module=getattr(models,yaml_config['arch'])(num_classes=yaml_config['num_classes'])
+    tnet:nn.Module=getattr(models,yaml_config['tarch'])(num_classes=yaml_config['num_classes']).cuda()
+    net:nn.Module=getattr(models,yaml_config['arch'])(num_classes=yaml_config['num_classes']).cuda()
     ROOT=r'https://github.com/shaoshitong/torchdistill/releases/download/v0.3.2/'
     if yaml_config['tcheckpoint']:
         tcheckpoint_path=ROOT+yaml_config['tcheckpoint']

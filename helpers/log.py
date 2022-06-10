@@ -80,6 +80,7 @@ class Log:
             top_5 = self.last_steps_state["top_5"] / self.last_steps_state["steps"]
             self.last_steps_state = {"loss": 0.0, "top_1": 0.0,"top_5":0.0,"steps": 0}
             progress = self.step / self.len_dataset
+            print(self.epoch,loss,top_1,top_5,learning_rate,self._time(),self.loading_bar(progress))
             print(
                 f"\r┃{self.epoch:12d}  ┃{loss:12.4f}  │{top_1:11.3f} % │{top_5:11.3f} % ┃{learning_rate:12.3e}  │{self._time():>12}  {self.loading_bar(progress)}",
                 end="",

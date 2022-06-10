@@ -46,7 +46,7 @@ class SAC:
         # 第一个Q网络
         self.critic_1 = QValueNet(state_dim, hidden_dim, action1_dim,action2_dim).to(device)
         # 第二个Q网络
-        self.critic_2 = QValueNet(state_dim, hidden_dim, action2_dim,action2_dim).to(device)
+        self.critic_2 = QValueNet(state_dim, hidden_dim, action1_dim,action2_dim).to(device)
         self.target_critic_1 = QValueNet(state_dim, hidden_dim,action1_dim, action2_dim).to(device)  # 第一个目标Q网络
         self.target_critic_2 = QValueNet(state_dim, hidden_dim,action1_dim, action2_dim).to(device)  # 第二个目标Q网络
         # 令目标Q网络的初始参数和Q网络一样

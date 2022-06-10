@@ -12,7 +12,7 @@ from helpers.log import Log
 from RL.SACContinuous import SACContinuous
 from RL.SAC import SAC
 from RL.rl_utils import ReplayBuffer
-import copy, time, math,random,os,sys,wandb
+import copy, time, math,random,os,sys
 import numpy as np
 
 
@@ -46,7 +46,7 @@ def get_index_list(p):
 class PolicyEnv(object):
     def __init__(self, dataloader: DataLoader, valloader: DataLoader, testloader: DataLoader, student_model: nn.Module,
                  teacher_model: nn.Module, scheduler, optimizer: torch.optim.Optimizer, loss: nn.Module,
-                 yaml,wandb:wandb):
+                 yaml,wandb,device=None):
         super(PolicyEnv, self).__init__()
         self.dataloader = dataloader
         self.valloader = valloader
@@ -54,8 +54,12 @@ class PolicyEnv(object):
         assert isinstance(self.dataloader.dataset,torch.utils.data.Subset) and (isinstance(self.dataloader.dataset.dataset, PolicyDatasetC100) or isinstance(self.dataloader.dataset.dataset,PolicyDatasetC10))
         self.policies = copy.deepcopy(self.dataloader.dataset.dataset.policies)
         self.status=self.reset()
-        self.student_model = student_model
-        self.teacher_model = teacher_model
+        if device!=None:
+            self.student_model = student_model.to(device)
+            self.teacher_model = teacher_model.to(device)
+        else:
+            self.student_model = student_model
+            self.teacher_model = teacher_model
         self.scheduler = scheduler
         self.optimizer = optimizer
         self.loss = loss
@@ -75,7 +79,8 @@ class PolicyEnv(object):
         self.SAC = SAC(
             state_dim=len(self.policies),
             hidden_dim=128,
-            action_dim=10,
+            action1_dim=15,
+            action2_dim=10,
             actor_lr=3e-4,
             critic_lr=3e-3,
             alpha_lr=3e-4,
@@ -87,7 +92,7 @@ class PolicyEnv(object):
         self.replay_buffer=ReplayBuffer(self.buffer_size)
         self.rl_batch_size=yaml['rl_batch_size']
         self.scaler = torch.cuda.amp.GradScaler()
-        time_path = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + ".txt"
+        time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
         self.ff = open(time_path, 'w')
     def reset_momentum(self):
         self.begin_tloss = 0.
@@ -100,10 +105,10 @@ class PolicyEnv(object):
         assert 0 <= action1 and action1 <= 14 and isinstance(action1,int)
         reward = 0
         if action1<14:
-            self.dataloader.dataset.dataset.policies[action1]=get_index(action2,p,action1)
+            self.dataloader.dataset.dataset.policies[action1]=get_index(action1,p,action2)
+            self.status[action1] = action2
         else:
             reward=1
-        self.status[action1]=action2
         return self.status,reward
 
     def reset(self,p=0.25):
@@ -129,13 +134,27 @@ class PolicyEnv(object):
         self.scaler.step(self.optimizer)
         self.scaler.update()
         top1, top5 = correct_num(logits, target, topk=(1, 5))
-        self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), self.scheduler.lr())
+        lr=self.scheduler.get_lr()[0] if hasattr(self.scheduler,"get_lr") else self.scheduler.lr()
+        self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return top1.cpu().item(),loss.cpu().item()
+    def generate_val_sample(self,dataset):
+        valdataset = dataset
+        index = np.random.choice(len(valdataset), self.sample_num, replace=False)
+        vinput,vtarget=[],[]
+        for i in index:
+            one_input,one_target=valdataset[i]
+            vinput.append(one_input)
+            vtarget.append(one_target)
+        return torch.stack(vinput,0),torch.stack(vtarget,0)
 
     @torch.no_grad()
     def run_one_val_batch_size(self, input, target):
         input = input.float().cuda()
         target = target.cuda()
+        if input.ndim == 5:
+            b, m, c, h, w = input.shape
+            input = input.view(-1, c, h, w)
+            target = target.view(-1)
         logits = self.student_model(input).float()
         t_logits = self.teacher_model(input)
         loss = self.loss(logits, t_logits, target)
@@ -162,9 +181,7 @@ class PolicyEnv(object):
             train_reward = -(loss - self.begin_tloss) + (top1 - self.begin_ttop1) / 10
             self.begin_tloss = self.momentum * loss + (1 - self.momentum) * self.begin_tloss if self.begin_tloss!=0 else loss
             self.begin_ttop1 = self.momentum * top1 + (1 - self.momentum) * self.begin_ttop1 if self.begin_ttop1!=0 else top1
-            valdataset = self.valloader.dataset
-            index = np.random.choice(len(valdataset), self.sample_num, replace=False)
-            vinput, vtarget = valdataset[index]
+            vinput, vtarget = self.generate_val_sample(self.valloader.dataset)
             top1, loss = self.run_one_val_batch_size(vinput, vtarget)
             val_reward = -(loss - self.begin_vloss) + (top1 - self.begin_vtop1) / 10
             self.begin_vloss = self.momentum * loss + (1 - self.momentum) * self.begin_vloss if self.begin_vloss!=0 else loss
@@ -225,6 +242,7 @@ class PolicyEnv(object):
                     'acc':vtop1
                 }
                 torch.save(dict,self.model_save_path)
+        self.ff.close()
         self.wandb.finish()
 
 
