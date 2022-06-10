@@ -195,7 +195,7 @@ class PolicyEnv(object):
             t_val_reward+=val_reward
             t_fix_reward+=reward
             reward = train_reward + val_reward + reward
-            self.replay_buffer.add(status,[action1,action2],reward,next_status,done=False)
+            self.replay_buffer.add(status,[action1,action2],reward,next_status,done=(batch_idx==len(self.dataloader)-1))
             self.episode+=reward
             self.offline_sample_update()
         train_acc, train_loss = self.log.epoch_state["top_1"] / self.log.epoch_state["steps"], self.log.epoch_state[

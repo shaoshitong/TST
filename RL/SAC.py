@@ -106,15 +106,15 @@ class SAC:
     def update(self, transition_dict):
         states = torch.tensor(transition_dict['states'],
                               dtype=torch.float).to(self.device)
-        actions1 = torch.tensor(transition_dict['actions'])[0].view(-1, 1).to(
-            self.device)  # 动作不再是float类型
-        actions2 = torch.tensor(transition_dict['actions'])[1].view(-1,1).to(self.device)
+        actions1 = torch.tensor(transition_dict['actions'][:,0]).view(-1, 1).to(
+            self.device).long()  # 动作不再是float类型
+        actions2 = torch.tensor(transition_dict['actions'][:,1]).view(-1,1).to(self.device).long()
         rewards = torch.tensor(transition_dict['rewards'],
-                               dtype=torch.float).view(-1, 1).to(self.device)
+                               dtype=torch.float).sum(0,keepdim=True).view(-1, 1).to(self.device)
         next_states = torch.tensor(transition_dict['next_states'],
                                    dtype=torch.float).to(self.device)
         dones = torch.tensor(transition_dict['dones'],
-                             dtype=torch.float).view(-1, 1).to(self.device)
+                             dtype=torch.float).view(-1, 1).to(self.device).float()
 
         # 更新两个Q网络
         td_target = self.calc_target(rewards, next_states, dones)
