@@ -40,7 +40,7 @@ class QValueNet(torch.nn.Module):
 class SAC:
     ''' 处理离散动作的SAC算法 '''
     def __init__(self, state_dim, hidden_dim, action1_dim,action2_dim, actor_lr, critic_lr,
-                 alpha_lr, target_entropy, tau, gamma, device):
+                 alpha_lr, target_entropy, tau, gamma,wandb, device):
         # 策略网络
         self.actor = PolicyNet(state_dim, hidden_dim, action1_dim,action2_dim).to(device)
         # 第一个Q网络
@@ -66,6 +66,7 @@ class SAC:
         self.target_entropy = target_entropy  # 目标熵的大小
         self.gamma = gamma
         self.tau = tau
+        self.wandb=wandb
         self.device = device
 
     def take_action(self, state):
@@ -158,6 +159,6 @@ class SAC:
         self.log_alpha_optimizer.zero_grad()
         alpha_loss.backward()
         self.log_alpha_optimizer.step()
-
         self.soft_update(self.critic_1, self.target_critic_1)
         self.soft_update(self.critic_2, self.target_critic_2)
+        return critic_1_loss.cpu().item(),critic_2_loss.cpu().item(),alpha_loss.cpu().item()

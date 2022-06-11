@@ -20,10 +20,12 @@ train_batch_size:
   256
 test_batch_size:
   256
+reward_accumuate_step:
+  8
 model_save_path:
   ./checkpoints/SAC/best.pth
 buffer_size:
-  10000
+  1000
 minimal_size:
   100
 rl_batch_size:
@@ -48,7 +50,7 @@ epoch:
 warmup_epoch:
   0
 expand:
-  20
+  300
 amp:
   True
 scheduler:
