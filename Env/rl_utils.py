@@ -1,8 +1,10 @@
-from tqdm import tqdm
-import numpy as np
-import torch
 import collections
 import random
+
+import numpy as np
+import torch
+from tqdm import tqdm
+
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -14,7 +16,13 @@ class ReplayBuffer:
     def sample(self, batch_size):
         transitions = random.sample(self.buffer, batch_size)
         state, action, reward, next_state, done = zip(*transitions)
-        return np.array(state), np.array(action), np.array(reward), np.array(next_state), np.array(done)
+        return (
+            np.array(state),
+            np.array(action),
+            np.array(reward),
+            np.array(next_state),
+            np.array(done),
+        )
 
     def size(self):
         return len(self.buffer)
@@ -24,7 +32,7 @@ def moving_average(a, window_size):
     cumulative_sum = np.cumsum(np.insert(a, 0, 0))
     middle = (cumulative_sum[window_size:] - cumulative_sum[:-window_size]) / window_size
     r = np.arange(1, window_size - 1, 2)
-    begin = np.cumsum(a[:window_size - 1])[::2] / r
+    begin = np.cumsum(a[: window_size - 1])[::2] / r
     end = (np.cumsum(a[:-window_size:-1])[::2] / r)[::-1]
     return np.concatenate((begin, middle, end))
 

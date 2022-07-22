@@ -1,0 +1,70 @@
+
+data:
+  Original_DataLoader_C100
+tarch:
+  wrn_40_2
+arch:
+  wrn_16_2
+loss:
+  KDloss
+tcheckpoint:
+  wrn_40_2.pth
+checkpoint:
+
+img_size:
+  32
+sc_lr:
+  0.005
+weights:
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+data_path:
+  /home/sst/dataset/c100
+val_ratio:
+  0.05
+num_worker:
+  4
+train_batch_size:
+  256
+test_batch_size:
+  256
+reward_accumuate_step:
+  8
+model_save_path:
+  ./checkpoints/SAC/
+log_each:
+  100
+optimizer:
+  lr:
+    0.1
+  type:
+    SGD
+  weight_decay:
+    1e-4
+  warmup_epoch:
+    0
+num_classes:
+  100
+epoch:
+  240
+warmup_epoch:
+  0
+expand:
+  300
+amp:
+  True
+scheduler:
+  type:
+    MultiStepLR
+  milestones:
+    [150,180,210]
+  gamma:
+    0.1
+criticion:
+  type:
+    KDLoss
+  temperature:
+    4

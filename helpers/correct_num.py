@@ -1,5 +1,3 @@
-
-
 def correct_num(output, target, topk=(1,)):
     """
     compute the top1 and top5
@@ -8,7 +6,7 @@ def correct_num(output, target, topk=(1,)):
     batch_size = target.size(0)
     _, pred = output.topk(maxk, 1, True, True)
     pred = pred.t()
-    if target.shape!=output.shape:
+    if target.shape != output.shape:
         correct = pred.eq(target.view(1, -1).expand_as(pred))
     else:
         correct = pred.eq(target.argmax(1).view(1, -1).expand_as(pred))

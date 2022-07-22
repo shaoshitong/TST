@@ -1,14 +1,14 @@
-'''ResNet in PyTorch.
+"""ResNet in PyTorch.
 For Pre-activation ResNet, see 'preact_resnet.py'.
 Reference:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Deep Residual Learning for Image Recognition. arXiv:1512.03385
-'''
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ['ResNet50_aux']
+__all__ = ["ResNet50_aux"]
 
 
 class BasicBlock(nn.Module):
@@ -17,7 +17,9 @@ class BasicBlock(nn.Module):
     def __init__(self, in_planes, planes, stride=1, is_last=False):
         super(BasicBlock, self).__init__()
         self.is_last = is_last
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
@@ -25,8 +27,10 @@ class BasicBlock(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion * planes)
+                nn.Conv2d(
+                    in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False
+                ),
+                nn.BatchNorm2d(self.expansion * planes),
             )
 
     def forward(self, x):
@@ -57,8 +61,10 @@ class Bottleneck(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion * planes)
+                nn.Conv2d(
+                    in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False
+                ),
+                nn.BatchNorm2d(self.expansion * planes),
             )
 
     def forward(self, x):
@@ -66,7 +72,6 @@ class Bottleneck(nn.Module):
         out = F.relu(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
         out += self.shortcut(x)
-        preact = out
         out = F.relu(out)
         return out
 
@@ -84,10 +89,11 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.linear = nn.Linear(512 * block.expansion, num_classes)
+        self.last_channel = 512 * block.expansion
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -124,7 +130,7 @@ class ResNet(nn.Module):
             bn3 = self.layer3[-1].bn2
             bn4 = self.layer4[-1].bn2
         else:
-            raise NotImplementedError('ResNet unknown block error !!!')
+            raise NotImplementedError("ResNet unknown block error !!!")
 
         return [bn1, bn2, bn3, bn4]
 
@@ -139,18 +145,16 @@ class ResNet(nn.Module):
 
     def forward(self, x, is_feat=False, preact=False):
         out = F.relu(self.bn1(self.conv1(x)))
-        f0 = out
-        out  = self.layer1(out)
+        out = self.layer1(out)
         f1 = out
-        out  = self.layer2(out)
+        out = self.layer2(out)
         f2 = out
-        out  = self.layer3(out)
+        out = self.layer3(out)
         f3 = out
         out = self.layer4(out)
         f4 = out
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
-        f5 = out
         out = self.linear(out)
         if is_feat:
             return [f1, f2, f3, f4], out
@@ -162,21 +166,32 @@ class Auxiliary_Classifier(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10, zero_init_residual=False):
         super(Auxiliary_Classifier, self).__init__()
 
-
         self.in_planes = 64 * block.expansion
-        self.block_extractor1 = nn.Sequential(*[self._make_layer(block, 128, num_blocks[1], stride=2),
-                                                self._make_layer(block, 256, num_blocks[2], stride=2),
-                                                self._make_layer(block, 512, num_blocks[3], stride=2)])
+        self.block_extractor1 = nn.Sequential(
+            *[
+                self._make_layer(block, 128, num_blocks[1], stride=2),
+                self._make_layer(block, 256, num_blocks[2], stride=2),
+                self._make_layer(block, 512, num_blocks[3], stride=2),
+            ]
+        )
 
         self.in_planes = 128 * block.expansion
-        self.block_extractor2 = nn.Sequential(*[self._make_layer(block, 256, num_blocks[2], stride=2),
-                                                self._make_layer(block, 512, num_blocks[3], stride=2)])
+        self.block_extractor2 = nn.Sequential(
+            *[
+                self._make_layer(block, 256, num_blocks[2], stride=2),
+                self._make_layer(block, 512, num_blocks[3], stride=2),
+            ]
+        )
 
         self.in_planes = 256 * block.expansion
-        self.block_extractor3 = nn.Sequential(*[self._make_layer(block, 512, num_blocks[3], stride=2)])
+        self.block_extractor3 = nn.Sequential(
+            *[self._make_layer(block, 512, num_blocks[3], stride=2)]
+        )
 
         self.in_planes = 512 * block.expansion
-        self.block_extractor4 = nn.Sequential(*[self._make_layer(block, 512, num_blocks[3], stride=1)])
+        self.block_extractor4 = nn.Sequential(
+            *[self._make_layer(block, 512, num_blocks[3], stride=1)]
+        )
 
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc1 = nn.Linear(512 * block.expansion, num_classes)
@@ -186,7 +201,7 @@ class Auxiliary_Classifier(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
@@ -200,15 +215,14 @@ class Auxiliary_Classifier(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-
     def forward(self, x):
         ss_logits = []
         for i in range(len(x)):
             idx = i + 1
-            out = getattr(self, 'block_extractor'+str(idx))(x[i])
+            out = getattr(self, "block_extractor" + str(idx))(x[i])
             out = self.avg_pool(out)
             out = out.view(out.size(0), -1)
-            out = getattr(self, 'fc'+str(idx))(out)
+            out = getattr(self, "fc" + str(idx))(out)
             ss_logits.append(out)
         return ss_logits
 
@@ -216,9 +230,13 @@ class Auxiliary_Classifier(nn.Module):
 class ResNet_Auxiliary(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10, zero_init_residual=False):
         super(ResNet_Auxiliary, self).__init__()
-        self.backbone = ResNet(block, num_blocks, num_classes=num_classes, zero_init_residual=zero_init_residual)
-        self.auxiliary_classifier = Auxiliary_Classifier(block, num_blocks, num_classes=num_classes*4, zero_init_residual=zero_init_residual)
-        
+        self.backbone = ResNet(
+            block, num_blocks, num_classes=num_classes, zero_init_residual=zero_init_residual
+        )
+        self.auxiliary_classifier = Auxiliary_Classifier(
+            block, num_blocks, num_classes=num_classes * 4, zero_init_residual=zero_init_residual
+        )
+
     def forward(self, x, grad=False):
         if grad is False:
             feats, logit = self.backbone(x, is_feat=True)
@@ -226,7 +244,7 @@ class ResNet_Auxiliary(nn.Module):
                 feats[i] = feats[i].detach()
         else:
             feats, logit = self.backbone(x, is_feat=True)
-            
+
         ss_logits = self.auxiliary_classifier(feats)
         return logit, ss_logits
 
@@ -242,8 +260,10 @@ def ResNet34(**kwargs):
 def ResNet50(**kwargs):
     return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
+
 def ResNet50_aux(**kwargs):
     return ResNet_Auxiliary(Bottleneck, [3, 4, 6, 3], **kwargs)
+
 
 def ResNet101(**kwargs):
     return ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
@@ -251,11 +271,3 @@ def ResNet101(**kwargs):
 
 def ResNet152(**kwargs):
     return ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-
-
-if __name__ == '__main__':
-    import torch
-    x = torch.randn(2, 3, 32, 32)
-    net = ResNet50_aux(num_classes=100)
-    logit, ss_logits = net(x)
-    print(logit.size())

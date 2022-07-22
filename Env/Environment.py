@@ -1,36 +1,42 @@
+import copy
+import os
+import random
+import time
+
+import numpy as np
 import timm.scheduler.scheduler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from datas.CIFAR100 import PolicyDatasetC100
-from datas.CIFAR100 import SubPolicy
-from datas.CIFAR10 import PolicyDatasetC10
 from torch.utils.data import DataLoader
+
+from datas.CIFAR10 import PolicyDatasetC10
+from datas.CIFAR100 import PolicyDatasetC100, SubPolicy
+from Env.rl_utils import ReplayBuffer
+from Env.SAC import SAC
+from Env.SACContinuous import SACContinuous
 from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from RL.SACContinuous import SACContinuous
-from RL.SAC import SAC
-from RL.rl_utils import ReplayBuffer
-import copy, time, math, random, os, sys
-import numpy as np
 
 
 def get_index(index, p, t):
-    policy_list = [lambda x: SubPolicy(p, 'autocontrast', x),
-                   lambda x: SubPolicy(p, 'contrast', x),
-                   lambda x: SubPolicy(p, 'posterize', x),
-                   lambda x: SubPolicy(p, 'solarize', x),
-                   lambda x: SubPolicy(p, 'translateY', x),
-                   lambda x: SubPolicy(p, 'shearX', x),
-                   lambda x: SubPolicy(p, 'brightness', x),
-                   lambda x: SubPolicy(p, 'shearY', x),
-                   lambda x: SubPolicy(p, 'translateX', x),
-                   lambda x: SubPolicy(p, 'sharpness', x),
-                   lambda x: SubPolicy(p, 'invert', x),
-                   lambda x: SubPolicy(p, 'color', x),
-                   lambda x: SubPolicy(p, 'equalize', x),
-                   lambda x: SubPolicy(p, 'rotate', x)]
+    policy_list = [
+        lambda x: SubPolicy(p, "autocontrast", x),
+        lambda x: SubPolicy(p, "contrast", x),
+        lambda x: SubPolicy(p, "posterize", x),
+        lambda x: SubPolicy(p, "solarize", x),
+        lambda x: SubPolicy(p, "translateY", x),
+        lambda x: SubPolicy(p, "shearX", x),
+        lambda x: SubPolicy(p, "brightness", x),
+        lambda x: SubPolicy(p, "shearY", x),
+        lambda x: SubPolicy(p, "translateX", x),
+        lambda x: SubPolicy(p, "sharpness", x),
+        lambda x: SubPolicy(p, "invert", x),
+        lambda x: SubPolicy(p, "color", x),
+        lambda x: SubPolicy(p, "equalize", x),
+        lambda x: SubPolicy(p, "rotate", x),
+    ]
     return policy_list[index](t)
 
 
@@ -46,16 +52,28 @@ def get_index_list(p):
 
 
 class PolicyEnv(object):
-    def __init__(self, dataloader: DataLoader, valloader: DataLoader, testloader: DataLoader, student_model: nn.Module,
-                 teacher_model: nn.Module, scheduler, optimizer: torch.optim.Optimizer, loss: nn.Module,
-                 yaml, wandb, device=None):
+    def __init__(
+        self,
+        dataloader: DataLoader,
+        valloader: DataLoader,
+        testloader: DataLoader,
+        student_model: nn.Module,
+        teacher_model: nn.Module,
+        scheduler,
+        optimizer: torch.optim.Optimizer,
+        loss: nn.Module,
+        yaml,
+        wandb,
+        device=None,
+    ):
         super(PolicyEnv, self).__init__()
         self.dataloader = dataloader
         self.valloader = valloader
         self.testloader = testloader
         assert isinstance(self.dataloader.dataset, torch.utils.data.Subset) and (
-                    isinstance(self.dataloader.dataset.dataset, PolicyDatasetC100) or isinstance(
-                self.dataloader.dataset.dataset, PolicyDatasetC10))
+            isinstance(self.dataloader.dataset.dataset, PolicyDatasetC100)
+            or isinstance(self.dataloader.dataset.dataset, PolicyDatasetC10)
+        )
         self.policies = copy.deepcopy(self.dataloader.dataset.dataset.policies)
         self.status = self.reset()
         if device != None:
@@ -68,27 +86,38 @@ class PolicyEnv(object):
         self.optimizer = optimizer
         self.loss = loss
         self.epoch = 0
-        self.total_epoch = yaml['epoch']
+        self.total_epoch = yaml["epoch"]
         self.yaml = yaml
-        self.log = Log(log_each=yaml['log_each'])
-        self.sample_num = yaml['sample_num']
-        self.minimal_size = yaml['minimal_size']
-        self.model_save_path = yaml['model_save_path']
-        self.expand = yaml['expand']
-        self.columns = ['autocontrast','contrast','posterize',
-                        'solarize','translateY','shearX',
-                        'brightness','shearY','translateX',
-                        'sharpness','invert','color','equalize',
-                        'rotate']
+        self.log = Log(log_each=yaml["log_each"])
+        self.sample_num = yaml["sample_num"]
+        self.minimal_size = yaml["minimal_size"]
+        self.model_save_path = yaml["model_save_path"]
+        self.expand = yaml["expand"]
+        self.columns = [
+            "autocontrast",
+            "contrast",
+            "posterize",
+            "solarize",
+            "translateY",
+            "shearX",
+            "brightness",
+            "shearY",
+            "translateX",
+            "sharpness",
+            "invert",
+            "color",
+            "equalize",
+            "rotate",
+        ]
         self.wandb = wandb
         self.reset_momentum()
         self.reset_reward()
-        self.reward_accumuate_step=yaml['reward_accumuate_step']
-        self.reward_accumuate_count=0
+        self.reward_accumuate_step = yaml["reward_accumuate_step"]
+        self.reward_accumuate_count = 0
         self.momentum = 0.999
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.done = False
-        self.episode = 0.
+        self.episode = 0.0
         self.SAC = SAC(
             state_dim=len(self.policies),
             hidden_dim=128,
@@ -101,24 +130,25 @@ class PolicyEnv(object):
             tau=0.001,
             gamma=0.999,
             wandb=wandb,
-            device=self.device)
-        self.buffer_size = yaml['buffer_size']
+            device=self.device,
+        )
+        self.buffer_size = yaml["buffer_size"]
         self.replay_buffer = ReplayBuffer(self.buffer_size)
-        self.rl_batch_size = yaml['rl_batch_size']
+        self.rl_batch_size = yaml["rl_batch_size"]
         self.scaler = torch.cuda.amp.GradScaler()
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
-        self.ff = open(time_path, 'w')
+        self.ff = open(time_path, "w")
 
     def reset_momentum(self):
-        self.begin_tloss = 0.
-        self.begin_ttop1 = 0.
-        self.begin_vloss = 0.
-        self.begin_vtop1 = 0.
-        self.best_acc = 0.
+        self.begin_tloss = 0.0
+        self.begin_ttop1 = 0.0
+        self.begin_vloss = 0.0
+        self.begin_vtop1 = 0.0
+        self.best_acc = 0.0
 
     def reset_reward(self):
-        self.step_train_reward=0.
-        self.step_val_reward=0.
+        self.step_train_reward = 0.0
+        self.step_val_reward = 0.0
         self.episode = 0
 
     def step(self, action1, action2, p=0.25):
@@ -143,7 +173,7 @@ class PolicyEnv(object):
             b, m, c, h, w = input.shape
             input = input.view(-1, c, h, w)
             target = target.view(-1)
-        if self.epoch >= self.yaml['warmup_epoch']:
+        if self.epoch >= self.yaml["warmup_epoch"]:
             lr = adjust_lr(self.optimizer, self.epoch, self.yaml, batch_idx, len(self.dataloader))
         self.optimizer.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
@@ -155,7 +185,9 @@ class PolicyEnv(object):
         self.scaler.step(self.optimizer)
         self.scaler.update()
         top1, top5 = correct_num(logits, target, topk=(1, 5))
-        lr = self.scheduler.get_lr()[0] if hasattr(self.scheduler, "get_lr") else self.scheduler.lr()
+        lr = (
+            self.scheduler.get_lr()[0] if hasattr(self.scheduler, "get_lr") else self.scheduler.lr()
+        )
         self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return top1.cpu().item(), loss.cpu().item()
 
@@ -183,59 +215,99 @@ class PolicyEnv(object):
         top1, top5 = correct_num(logits, target, topk=(1, 5))
         return top1.cpu().item(), loss.cpu().item()
 
-    def offline_sample_update(self, ):
+    def offline_sample_update(
+        self,
+    ):
         if self.replay_buffer.size() > self.minimal_size:
             b_s, b_a, b_r, b_ns, b_d = self.replay_buffer.sample(self.rl_batch_size)
-            transition_dict = {'states': b_s, 'actions': b_a, 'next_states': b_ns, 'rewards': b_r, 'dones': b_d}
-            critic_1_loss,critic_2_loss,actor_loss=self.SAC.update(transition_dict)
+            transition_dict = {
+                "states": b_s,
+                "actions": b_a,
+                "next_states": b_ns,
+                "rewards": b_r,
+                "dones": b_d,
+            }
+            critic_1_loss, critic_2_loss, actor_loss = self.SAC.update(transition_dict)
         else:
-            critic_1_loss,critic_2_loss,actor_loss=0,0,0
-        return critic_1_loss,critic_2_loss,actor_loss
+            critic_1_loss, critic_2_loss, actor_loss = 0, 0, 0
+        return critic_1_loss, critic_2_loss, actor_loss
+
     def run_one_train_epoch(self):
         """============================train=============================="""
-        if self.epoch >= self.yaml['warmup_epoch']:
-            lr = adjust_lr(self.optimizer, self.epoch, self.yaml)
+        if self.epoch >= self.yaml["warmup_epoch"]:
+            adjust_lr(self.optimizer, self.epoch, self.yaml)
         start_time = time.time()
         self.student_model.train()
         self.log.train(len_dataset=len(self.dataloader))
         for batch_idx, (input, target) in enumerate(self.dataloader):
-            if self.reward_accumuate_count%self.reward_accumuate_step==0:
+            if self.reward_accumuate_count % self.reward_accumuate_step == 0:
                 self.previous_status = self.status  # (14,)
                 action1, action2 = self.SAC.take_action(self.previous_status)
                 next_status, reward = self.step(action1, action2)
-                self.action1,self.action2,self.next_status=action1,action2,next_status
+                self.action1, self.action2, self.next_status = action1, action2, next_status
             top1, loss = self.run_one_train_batch_size(batch_idx, input, target)
             train_reward = (top1 - self.begin_ttop1) * self.expand
-            self.begin_tloss = self.momentum * loss + (
-                        1 - self.momentum) * self.begin_tloss if self.begin_tloss != 0 else loss
-            self.begin_ttop1 = self.momentum * top1 + (
-                        1 - self.momentum) * self.begin_ttop1 if self.begin_ttop1 != 0 else top1
+            self.begin_tloss = (
+                self.momentum * loss + (1 - self.momentum) * self.begin_tloss
+                if self.begin_tloss != 0
+                else loss
+            )
+            self.begin_ttop1 = (
+                self.momentum * top1 + (1 - self.momentum) * self.begin_ttop1
+                if self.begin_ttop1 != 0
+                else top1
+            )
             vinput, vtarget = self.generate_val_sample(self.valloader.dataset)
             top1, loss = self.run_one_val_batch_size(vinput, vtarget)
             val_reward = (top1 - self.begin_vtop1) * self.expand
-            self.begin_vloss = self.momentum * loss + (
-                        1 - self.momentum) * self.begin_vloss if self.begin_vloss != 0 else loss
-            self.begin_vtop1 = self.momentum * top1 + (
-                        1 - self.momentum) * self.begin_vtop1 if self.begin_vtop1 != 0 else top1
-            self.step_train_reward+=train_reward
-            self.step_val_reward+=val_reward
-            if self.reward_accumuate_count%self.reward_accumuate_step==0:
-                reward=(self.step_train_reward+self.step_val_reward)/self.reward_accumuate_step
-                self.replay_buffer.add(self.previous_status, [self.action1, self.action2], reward, self.next_status,
-                                       done=(batch_idx == len(self.dataloader) - 1))
+            self.begin_vloss = (
+                self.momentum * loss + (1 - self.momentum) * self.begin_vloss
+                if self.begin_vloss != 0
+                else loss
+            )
+            self.begin_vtop1 = (
+                self.momentum * top1 + (1 - self.momentum) * self.begin_vtop1
+                if self.begin_vtop1 != 0
+                else top1
+            )
+            self.step_train_reward += train_reward
+            self.step_val_reward += val_reward
+            if self.reward_accumuate_count % self.reward_accumuate_step == 0:
+                reward = (
+                    self.step_train_reward + self.step_val_reward
+                ) / self.reward_accumuate_step
+                self.replay_buffer.add(
+                    self.previous_status,
+                    [self.action1, self.action2],
+                    reward,
+                    self.next_status,
+                    done=(batch_idx == len(self.dataloader) - 1),
+                )
                 self.episode = reward
                 self.reset_reward()
-            table=self.wandb.Table(data=[self.status],columns=self.columns)
-            critic_1_loss,critic_2_loss,actor_loss=self.offline_sample_update()
-            print(critic_1_loss,critic_2_loss,actor_loss)
-            self.wandb.log({'train_reward': self.step_train_reward, 'val_reward': self.step_val_reward,'table':table,
-                            'critic_1_loss':critic_1_loss,'critic_2_loss':critic_2_loss,'actor_loss':actor_loss},
-                           step=self.reward_accumuate_count)
-            self.reward_accumuate_count+=1
-        train_acc, train_loss = self.log.epoch_state["top_1"] / self.log.epoch_state["steps"], self.log.epoch_state[
-            "loss"] / self.log.epoch_state["steps"]
+            table = self.wandb.Table(data=[self.status], columns=self.columns)
+            critic_1_loss, critic_2_loss, actor_loss = self.offline_sample_update()
+            print(critic_1_loss, critic_2_loss, actor_loss)
+            self.wandb.log(
+                {
+                    "train_reward": self.step_train_reward,
+                    "val_reward": self.step_val_reward,
+                    "table": table,
+                    "critic_1_loss": critic_1_loss,
+                    "critic_2_loss": critic_2_loss,
+                    "actor_loss": actor_loss,
+                },
+                step=self.reward_accumuate_count,
+            )
+            self.reward_accumuate_count += 1
+        train_acc, train_loss = (
+            self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
+            self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
+        )
         use_time = round((time.time() - start_time) / 60, 2)
-        self.ff.write(f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss}, min:{use_time}\n")
+        self.ff.write(
+            f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss}, min:{use_time}\n"
+        )
         return train_acc, train_loss, self.episode
 
     @torch.no_grad()
@@ -254,10 +326,14 @@ class PolicyEnv(object):
             loss = F.cross_entropy(logits, target, reduction="mean")
             top1, top5 = correct_num(logits, target, topk=(1, 5))
             self.log(self.student_model, loss.cpu(), top1.cpu(), top5.cpu())
-        test_acc, test_loss = self.log.epoch_state["top_1"] / self.log.epoch_state["steps"], self.log.epoch_state[
-            "loss"] / self.log.epoch_state["steps"]
+        test_acc, test_loss = (
+            self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
+            self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
+        )
         use_time = round((time.time() - start_time) / 60, 2)
-        self.ff.write(f"epoch:{self.epoch}, test_acc:{test_acc}, test_loss:{test_loss}, min:{use_time}\n")
+        self.ff.write(
+            f"epoch:{self.epoch}, test_acc:{test_acc}, test_loss:{test_loss}, min:{use_time}\n"
+        )
         return test_acc
 
     def scheduler_step(self):
@@ -271,7 +347,9 @@ class PolicyEnv(object):
             ttop1, tloss, _ = self.run_one_train_epoch()
             self.scheduler_step()
             vtop1 = self.run_one_val_epoch()
-            self.wandb.log({'train_loss': tloss, 'train_top1': ttop1, 'val_top1': vtop1}, step=self.epoch)
+            self.wandb.log(
+                {"train_loss": tloss, "train_top1": ttop1, "val_top1": vtop1}, step=self.epoch
+            )
             self.epoch += 1
             if self.best_acc < vtop1:
                 self.best_acc = vtop1
@@ -281,8 +359,8 @@ class PolicyEnv(object):
                 dict = {
                     "epoch": self.epoch,
                     "optimizer": self.optimizer.state_dict(),
-                    'model': self.student_model.state_dict(),
-                    'acc': vtop1
+                    "model": self.student_model.state_dict(),
+                    "acc": vtop1,
                 }
                 torch.save(dict, self.model_save_path)
         self.ff.close()

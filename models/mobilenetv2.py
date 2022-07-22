@@ -3,14 +3,21 @@ MobileNetV2 implementation used in
 <Knowledge Distillation via Route Constrained Optimization>
 """
 
-import torch
-import torch.nn as nn
 import math
 
+import torch
+import torch.nn as nn
 
-__all__ = ['mobilenetv2_T_w', 'mobilenetV2', 'mobilenetV2_aux','mobilenetV2_spkd','mobilenetV2_crd']
+__all__ = [
+    "mobilenetv2_T_w",
+    "mobilenetV2",
+    "mobilenetV2_aux",
+    "mobilenetV2_spkd",
+    "mobilenetV2_crd",
+]
 
 BN = None
+
 
 class Normalizer4CRD(nn.Module):
     def __init__(self, linear, power=2):
@@ -25,21 +32,17 @@ class Normalizer4CRD(nn.Module):
         out = z.div(norm)
         return out
 
+
 def conv_bn(inp, oup, stride):
     return nn.Sequential(
-        nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
-        nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
+        nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True)
     )
 
 
 def conv_1x1_bn(inp, oup):
     return nn.Sequential(
-        nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
-        nn.BatchNorm2d(oup),
-        nn.ReLU(inplace=True)
+        nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True)
     )
-
 
 
 class InvertedResidual(nn.Module):
@@ -58,18 +61,26 @@ class InvertedResidual(nn.Module):
             nn.BatchNorm2d(inp * expand_ratio),
             nn.ReLU(inplace=True),
             # dw
-            nn.Conv2d(inp * expand_ratio, inp * expand_ratio, 3, stride, 1, groups=inp * expand_ratio, bias=False),
+            nn.Conv2d(
+                inp * expand_ratio,
+                inp * expand_ratio,
+                3,
+                stride,
+                1,
+                groups=inp * expand_ratio,
+                bias=False,
+            ),
             nn.BatchNorm2d(inp * expand_ratio),
             nn.ReLU(inplace=True),
             # pw-linear
             nn.Conv2d(inp * expand_ratio, oup, 1, 1, 0, bias=False),
             nn.BatchNorm2d(oup),
         )
-        self.names = ['0', '1', '2', '3', '4', '5', '6', '7']
+        self.names = ["0", "1", "2", "3", "4", "5", "6", "7"]
 
     def forward(self, x):
         t = x
-        
+
         if self.use_res_connect:
             return t + self.conv(x)
         else:
@@ -78,11 +89,8 @@ class InvertedResidual(nn.Module):
 
 class MobileNetV2(nn.Module):
     """mobilenetV2"""
-    def __init__(self, T,
-                 feature_dim,
-                 input_size=32,
-                 width_mult=1.,
-                 remove_avg=False):
+
+    def __init__(self, T, feature_dim, input_size=32, width_mult=1.0, remove_avg=False):
         super(MobileNetV2, self).__init__()
         self.remove_avg = remove_avg
 
@@ -91,12 +99,9 @@ class MobileNetV2(nn.Module):
             # t, c, n, s
             [1, 16, 1, 1],
             [T, 24, 2, 1],
-
             [T, 32, 3, 2],
-
             [T, 64, 4, 2],
             [T, 96, 3, 1],
-
             [T, 160, 3, 2],
             [T, 320, 1, 1],
         ]
@@ -104,7 +109,7 @@ class MobileNetV2(nn.Module):
         # building first layer
         assert input_size % 32 == 0
         input_channel = int(32 * width_mult)
-        self.conv1 = conv_bn(3, input_channel,1)
+        self.conv1 = conv_bn(3, input_channel, 1)
 
         # building inverted residual blocks
         self.blocks = nn.ModuleList([])
@@ -113,26 +118,23 @@ class MobileNetV2(nn.Module):
             layers = []
             strides = [s] + [1] * (n - 1)
             for stride in strides:
-                layers.append(
-                    InvertedResidual(input_channel, output_channel, stride, t)
-                )
+                layers.append(InvertedResidual(input_channel, output_channel, stride, t))
                 input_channel = output_channel
             self.blocks.append(nn.Sequential(*layers))
 
         self.last_channel = int(1280 * width_mult) if width_mult > 1.0 else 1280
         self.conv2 = conv_1x1_bn(input_channel, self.last_channel)
-
-        self.avgpool = nn.AdaptiveAvgPool2d((1,1))
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
         # building classifier
-        #self.classifier = nn.Sequential(
+        # self.classifier = nn.Sequential(
         #    # nn.Dropout(0.5),
         #    nn.Linear(self.last_channel, feature_dim),
-        #)
+        # )
         self.classifier = nn.Linear(self.last_channel, feature_dim)
 
         self._initialize_weights()
-        
+
     def get_bn_before_relu(self):
         bn1 = self.blocks[1][-1].conv[-1]
         bn2 = self.blocks[2][-1].conv[-1]
@@ -159,14 +161,12 @@ class MobileNetV2(nn.Module):
         f3 = out
         out = self.blocks[5](out)
         out = self.blocks[6](out)
-        f4 = out
-
         out = self.conv2(out)
+        f4 = out
 
         if not self.remove_avg:
             out = self.avgpool(out)
         out = out.view(out.size(0), -1)
-        f5 = out
         out = self.classifier(out)
 
         if is_feat:
@@ -178,7 +178,7 @@ class MobileNetV2(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
@@ -191,11 +191,7 @@ class MobileNetV2(nn.Module):
 
 
 class Auxiliary_Classifier(nn.Module):
-    def __init__(self, T,
-                 feature_dim,
-                 input_size=32,
-                 width_mult=1.,
-                 remove_avg=False):
+    def __init__(self, T, feature_dim, input_size=32, width_mult=1.0, remove_avg=False):
         super(Auxiliary_Classifier, self).__init__()
 
         self.remove_avg = remove_avg
@@ -203,37 +199,40 @@ class Auxiliary_Classifier(nn.Module):
         # setting of inverted residual blocks
         interverted_residual_setting1 = [
             [T, 32, 3, 2],
-
             [T, 64, 4, 2],
             [T, 96, 3, 1],
-
             [T, 160, 3, 2],
             [T, 320, 1, 1],
         ]
-        self.block_extractor1 = self._make_layer(input_channel=12, interverted_residual_setting=interverted_residual_setting1)
+        self.block_extractor1 = self._make_layer(
+            input_channel=12, interverted_residual_setting=interverted_residual_setting1
+        )
 
         interverted_residual_setting2 = [
             [T, 64, 4, 2],
             [T, 96, 3, 1],
-
             [T, 160, 3, 2],
             [T, 320, 1, 1],
         ]
-        self.block_extractor2 = self._make_layer(input_channel=16, interverted_residual_setting=interverted_residual_setting2)
+        self.block_extractor2 = self._make_layer(
+            input_channel=16, interverted_residual_setting=interverted_residual_setting2
+        )
 
         interverted_residual_setting3 = [
-            
             [T, 160, 3, 2],
             [T, 320, 1, 1],
         ]
-        self.block_extractor3 = self._make_layer(input_channel=48, interverted_residual_setting=interverted_residual_setting3)
+        self.block_extractor3 = self._make_layer(
+            input_channel=48, interverted_residual_setting=interverted_residual_setting3
+        )
 
         interverted_residual_setting4 = [
-            
             [T, 160, 3, 1],
             [T, 320, 1, 1],
         ]
-        self.block_extractor4 = self._make_layer(input_channel=160, interverted_residual_setting=interverted_residual_setting4)
+        self.block_extractor4 = self._make_layer(
+            input_channel=160, interverted_residual_setting=interverted_residual_setting4
+        )
 
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.last_channel = int(1280 * width_mult) if width_mult > 1.0 else 1280
@@ -243,12 +242,11 @@ class Auxiliary_Classifier(nn.Module):
         self.conv2_3 = conv_1x1_bn(160, self.last_channel)
         self.conv2_4 = conv_1x1_bn(160, self.last_channel)
 
-
         self.fc1 = nn.Linear(self.last_channel, feature_dim)
         self.fc2 = nn.Linear(self.last_channel, feature_dim)
         self.fc3 = nn.Linear(self.last_channel, feature_dim)
         self.fc4 = nn.Linear(self.last_channel, feature_dim)
-        
+
         self._initialize_weights()
 
     def _make_layer(self, input_channel, interverted_residual_setting):
@@ -259,19 +257,17 @@ class Auxiliary_Classifier(nn.Module):
             layers = []
             strides = [s] + [1] * (n - 1)
             for stride in strides:
-                layers.append(
-                    InvertedResidual(input_channel, output_channel, stride, t)
-                )
+                layers.append(InvertedResidual(input_channel, output_channel, stride, t))
                 input_channel = output_channel
             blocks.append(nn.Sequential(*layers))
 
         return nn.Sequential(*blocks)
-    
+
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
@@ -282,21 +278,20 @@ class Auxiliary_Classifier(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
-
     def forward(self, x):
         ss_logits = []
         ss_feats = []
-        
+
         for i in range(len(x)):
             idx = i + 1
-            out = getattr(self, 'block_extractor'+str(idx))(x[i])
-            out = getattr(self, 'conv2_'+str(idx))(out)
+            out = getattr(self, "block_extractor" + str(idx))(x[i])
+            out = getattr(self, "conv2_" + str(idx))(out)
             out = self.avg_pool(out)
             out = out.view(out.size(0), -1)
             ss_feats.append(out)
-            out = getattr(self, 'fc'+str(idx))(out)
+            out = getattr(self, "fc" + str(idx))(out)
             ss_logits.append(out)
-            
+
         return ss_feats, ss_logits
 
 
@@ -304,8 +299,10 @@ class MobileNetv2_Auxiliary(nn.Module):
     def __init__(self, T, W, feature_dim=100):
         super(MobileNetv2_Auxiliary, self).__init__()
         self.backbone = MobileNetV2(T=T, feature_dim=feature_dim, width_mult=W)
-        self.auxiliary_classifier = Auxiliary_Classifier(T=T, feature_dim=4 * feature_dim, width_mult=W)
-        
+        self.auxiliary_classifier = Auxiliary_Classifier(
+            T=T, feature_dim=4 * feature_dim, width_mult=W
+        )
+
     def forward(self, x, grad=False, att=False):
         feats, logit = self.backbone(x, is_feat=True)
         if grad is False:
@@ -317,19 +314,11 @@ class MobileNetv2_Auxiliary(nn.Module):
         else:
             return logit, ss_logits, feats
 
+
 class MobileNetV2_SPKD(MobileNetV2):
-    def __init__(self, T,
-                 feature_dim,
-                 input_size=32,
-                 width_mult=1.,
-                 remove_avg=False):
-        super(MobileNetV2_SPKD, self).__init__(
-            T,
-            feature_dim,
-            input_size,
-            width_mult,
-            remove_avg
-        )
+    def __init__(self, T, feature_dim, input_size=32, width_mult=1.0, remove_avg=False):
+        super(MobileNetV2_SPKD, self).__init__(T, feature_dim, input_size, width_mult, remove_avg)
+
     def forward(self, x):
         out = self.conv1(x)
         out = self.blocks[0](out)
@@ -347,15 +336,11 @@ class MobileNetV2_SPKD(MobileNetV2):
             out = self.avgpool(out)
         out = out.view(out.size(0), -1)
         out = self.classifier(out)
-        return f4,out
+        return f4, out
 
 
 class MobileNetV2_CRD(nn.Module):
-    def __init__(self,T,
-                 feature_dim,
-                 input_size=32,
-                 width_mult=1.,
-                 remove_avg=False):
+    def __init__(self, T, feature_dim, input_size=32, width_mult=1.0, remove_avg=False):
         super(MobileNetV2_CRD, self).__init__()
         self.remove_avg = remove_avg
 
@@ -364,12 +349,9 @@ class MobileNetV2_CRD(nn.Module):
             # t, c, n, s
             [1, 16, 1, 1],
             [T, 24, 2, 1],
-
             [T, 32, 3, 2],
-
             [T, 64, 4, 2],
             [T, 96, 3, 1],
-
             [T, 160, 3, 2],
             [T, 320, 1, 1],
         ]
@@ -386,9 +368,7 @@ class MobileNetV2_CRD(nn.Module):
             layers = []
             strides = [s] + [1] * (n - 1)
             for stride in strides:
-                layers.append(
-                    InvertedResidual(input_channel, output_channel, stride, t)
-                )
+                layers.append(InvertedResidual(input_channel, output_channel, stride, t))
                 input_channel = output_channel
             self.blocks.append(nn.Sequential(*layers))
 
@@ -396,7 +376,7 @@ class MobileNetV2_CRD(nn.Module):
         self.conv2 = conv_1x1_bn(input_channel, self.last_channel)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.classifier = nn.Linear(self.last_channel, feature_dim)
-        linear = nn.Linear(self.last_channel,128,bias=True)
+        linear = nn.Linear(self.last_channel, 128, bias=True)
         self.normalizer = Normalizer4CRD(linear, power=2)
         self._initialize_weights()
 
@@ -413,7 +393,6 @@ class MobileNetV2_CRD(nn.Module):
         feat_m.append(self.blocks)
         return feat_m
 
-
     def forward(self, x):
 
         out = self.conv1(x)
@@ -426,19 +405,17 @@ class MobileNetV2_CRD(nn.Module):
         out = self.blocks[6](out)
         out = self.conv2(out)
         out = self.avgpool(out)
-        f=out
+        f = out
         out = out.view(out.size(0), -1)
         out = self.classifier(out)
-        crdout=self.normalizer(f)
-        return crdout,out
-
-
+        crdout = self.normalizer(f)
+        return crdout, out
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
@@ -449,6 +426,7 @@ class MobileNetV2_CRD(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
+
 def mobilenetv2_T_w(T, W, feature_dim=100):
     model = MobileNetV2(T=T, feature_dim=feature_dim, width_mult=W)
     return model
@@ -457,21 +435,14 @@ def mobilenetv2_T_w(T, W, feature_dim=100):
 def mobilenetV2(num_classes):
     return mobilenetv2_T_w(6, 0.5, num_classes)
 
+
 def mobilenetV2_aux(num_classes):
     return MobileNetv2_Auxiliary(6, 0.5, num_classes)
 
+
 def mobilenetV2_spkd(num_classes):
-    return MobileNetV2_SPKD(T=6,width_mult=0.5,feature_dim=num_classes)
+    return MobileNetV2_SPKD(T=6, width_mult=0.5, feature_dim=num_classes)
+
 
 def mobilenetV2_crd(num_classes):
-    return MobileNetV2_CRD(T=6,width_mult=0.5,feature_dim=num_classes)
-
-if __name__ == '__main__':
-    x = torch.randn(2, 3, 32, 32)
-    net = mobilenetV2_aux(100)
-    logit, ss_logits = net(x)
-    print(logit)
-    print(ss_logits)
-    from C100.utils import cal_param_size, cal_multi_adds
-    print('Params: %.2fM, Multi-adds: %.3fM'
-          % (cal_param_size(net) / 1e6, cal_multi_adds(net, (2, 3, 32, 32)) / 1e6))
+    return MobileNetV2_CRD(T=6, width_mult=0.5, feature_dim=num_classes)
