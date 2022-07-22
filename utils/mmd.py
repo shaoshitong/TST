@@ -23,7 +23,6 @@ def mmd_rbf(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2)
     kernels = guassian_kernel(
         source, target, kernel_mul=kernel_mul, kernel_num=kernel_num, fix_sigma=fix_sigma
     )
-
     loss = 0
 
     if ver == 1:
@@ -46,11 +45,13 @@ def mmd_rbf(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2)
 
 
 def conditional_mmd_rbf(
-    source, target, label, num_class, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2
+        source, target, label, num_class, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2
 ):
     loss = 0
     for i in range(num_class):
-        source_i = source[label == i]
-        target_i = target[label == i]
-        loss += mmd_rbf(source_i, target_i)
+        indice = (label == i)
+        if indice.sum() > 0:
+            source_i = source[indice]
+            target_i = target[indice]
+            loss += mmd_rbf(source_i, target_i)
     return loss / num_class

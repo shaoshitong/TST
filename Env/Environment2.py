@@ -237,7 +237,6 @@ class LearnDiversifyEnv(object):
         e1 = student_embedding[:b]
         e2 = student_embedding[b:]
         mmd_loss = self.Mmd(e1, e2, target, num_class=self.num_classes)
-
         # TODO: 3. Combine all Loss in stage two
         loss_2 = self.weights[3] * club_loss + self.weights[4] * mmd_loss
         self.convertor_optimizer.zero_grad()
