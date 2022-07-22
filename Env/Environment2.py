@@ -54,6 +54,7 @@ class LearnDiversifyEnv(object):
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.done = False
         self.episode = 0.0
+        self.best_acc = 0.0
         self.accumuate_count = 0
         self.scaler = torch.cuda.amp.GradScaler()
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
