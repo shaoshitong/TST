@@ -8,27 +8,29 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
+from datas.Augmentation import Augmentation
+
 from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from utils.augnet import BigImageAugNet,SmallImageAugNet
+from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
 
 
 class LearnDiversifyEnv(object):
     def __init__(
-        self,
-        dataloader: DataLoader,
-        testloader: DataLoader,
-        student_model: nn.Module,
-        teacher_model: nn.Module,
-        scheduler,
-        optimizer: torch.optim.Optimizer,
-        loss: nn.Module,
-        yaml,
-        wandb,
-        device=None,
+            self,
+            dataloader: DataLoader,
+            testloader: DataLoader,
+            student_model: nn.Module,
+            teacher_model: nn.Module,
+            scheduler,
+            optimizer: torch.optim.Optimizer,
+            loss: nn.Module,
+            yaml,
+            wandb,
+            device=None,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -61,7 +63,7 @@ class LearnDiversifyEnv(object):
         self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
-        AugNet= BigImageAugNet if not yaml['augnettype'] == "SmallImageAugNet" else SmallImageAugNet
+        AugNet = BigImageAugNet if not yaml['augnettype'] == "SmallImageAugNet" else SmallImageAugNet
         self.convertor = (
             AugNet(img_size=yaml["img_size"]).cuda()
             if torch.cuda.is_available()
@@ -89,6 +91,11 @@ class LearnDiversifyEnv(object):
         self.optimizer.add_param_group({"params": self.p_mu.parameters()})
         self.weights = yaml["weights"]
 
+        # TODO: Natural Aumentation (i.e., AutoAugment, Cutmix, YOCO)
+        self.augmentation = Augmentation(num_classes=yaml['num_classes'], policy=yaml['augmentation_policy'],
+                                         mode=yaml['augmentation_mode'])
+        self.augmented_ratio = yaml['augmented_ratio']
+
     def reparametrize(self, mu, logvar, factor=0.2):
         std = logvar.div(2).exp()
         eps = std.data.new(std.size()).normal_()  # 0-1 gaussian distribution
@@ -101,8 +108,14 @@ class LearnDiversifyEnv(object):
             torch.softmax(teacher_output / temperature, dim=1),
             reduction="batchmean",
         )
-        hard_loss = F.cross_entropy(student_output, targets) if targets != None else 0.0
+        hard_loss = F.kl_div(torch.log_softmax(student_output, dim=-1), targets,
+                             reduction='batchmean') if targets != None else 0.0
         return hard_loss + (temperature ** 2) * soft_loss
+
+    def Contextual(self, a, b):
+        acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8)  # (b,)
+        distance = (a.pow(2).sum(-1).sqrt() - b.pow(2).sum(-1).sqrt()) + acosineb
+        return -torch.log(distance).mean()
 
     def ConLoss(self, features, labels, temperature=0.07):
         if len(features.shape) > 3:
@@ -133,20 +146,21 @@ class LearnDiversifyEnv(object):
         loss = loss.mean()
         return loss
 
-    def Loglikeli(self, mu, logvar, y_samples):
+    def Loglikeli(self, mu1, logvar1, mu2, logvar2):
         return (
-            -((mu - y_samples) ** 2) / logvar.exp() - logvar
-        ).mean()  # log ( var * e ^ ( (y-mu)^2 / var ) )
+                       -((mu1 - mu2) ** 2) / logvar2.exp() - logvar1.exp() / logvar2.exp() + logvar1 - logvar2
+               ).mean() / 2
 
-    def Club(self, mu, logvar, y_samples): # TODO: mu,logvar -> augmentad sample , y_samples -> original sample
-        sample_size = y_samples.shape[0]
-        # random_index = torch.randint(sample_size, (sample_size,)).long()
+    def Club(self, o_mu, o_logvar, a_mu,
+             a_logvar):  # TODO: mu,logvar -> augmentad sample , y_samples -> original sample
+        sample_size = o_mu.shape[0]
         random_index = torch.randperm(sample_size).long()
-
-        positive = -((mu - y_samples) ** 2) / logvar.exp()
-        negative = -((mu - y_samples[random_index]) ** 2) / logvar.exp()  # log(z_j^+|z_i)
-        upper_bound = (positive.sum(dim=-1) - negative.sum(dim=-1)).mean()
-        return upper_bound / 2.0
+        positive = -(-((
+                               a_mu - o_mu) ** 2) / o_logvar.exp() - a_logvar.exp() / o_logvar.exp() + a_logvar / 2 - o_logvar / 2).mean()
+        negative = (-((a_mu[random_index] - o_mu) ** 2) / o_logvar.exp() - a_logvar[random_index].exp() / o_logvar.exp()
+                    + a_logvar[random_index] / 2 - o_logvar / 2).mean()
+        upper_bound = positive + negative
+        return upper_bound
 
     def Mmd(self, e1, e2, target, num_class):
         return conditional_mmd_rbf(e1, e2, target, num_class)
@@ -159,16 +173,23 @@ class LearnDiversifyEnv(object):
         self.best_acc = 0.0
 
     def run_one_train_batch_size(self, batch_idx, input, target):
+
+        # TODO: turn target (N,1) -> (N,C)
         input = input.float().cuda()
         target = target.cuda()
         target = target.view(-1)
+        target = F.one_hot(target, num_classes=self.num_classes).float()
 
         # TODO: Learning to diversify
-        inputs_max = self.tran(torch.sigmoid(self.convertor(input)))
+        rand_choose = torch.randperm(input.shape[0])[:int(self.augmented_ratio * input.shape[0])]
+        temp = input.clone()
+        target_temp = target.clone()
+        temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
+        inputs_max = self.tran(torch.sigmoid(self.convertor(temp)))
         inputs_max = inputs_max * 0.6 + input * 0.4
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
-        labels = torch.cat([target, target])
+        labels = torch.cat([target_temp, target])
         if self.epoch >= self.yaml["warmup_epoch"]:
             adjust_lr(self.optimizer, self.epoch, self.yaml, batch_idx, len(self.dataloader))
         with torch.cuda.amp.autocast(enabled=True):
@@ -179,71 +200,86 @@ class LearnDiversifyEnv(object):
             teacher_lambda = teacher_tuple[-1]
             student_avgpool = self.avgpool2d(student_lambda)
             teacher_avgpool = self.avgpool2d(teacher_lambda)
-            studnet_logvar = self.p_logvar(student_avgpool)
+            student_logvar = self.p_logvar(student_avgpool)
             student_mu = self.p_mu(student_avgpool)
             teacher_logvar = self.p_logvar(teacher_avgpool)
             teacher_mu = self.p_mu(teacher_avgpool)
-            student_embedding = self.reparametrize(student_mu, studnet_logvar)
-            self.reparametrize(teacher_mu, teacher_logvar)
+            student_embedding = self.reparametrize(student_mu, student_logvar)
+            teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
-        vanilla_kd_loss = self.KDLoss(student_logits, teacher_logits, labels)
+        vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
 
         # TODO: 2. Maximize MI between original sample and augmented sample
         student_embedding_augmented = F.normalize(student_embedding[:b]).unsqueeze(1)
         student_embedding_original = F.normalize(student_embedding[b:]).unsqueeze(1)
         con_sup_loss = self.ConLoss(
-            torch.cat([student_embedding_original, student_embedding_augmented], dim=1), target
+            torch.cat([student_embedding_original, student_embedding_augmented], dim=1), target.argmax(1)
         )
 
         # TODO: 3. Lilikehood Loss
-        mu = studnet_logvar[b:]
-        logvar = studnet_logvar[b:]
-        y_samples = studnet_logvar[:b]
-        likeli_loss = -self.Loglikeli(mu, logvar, y_samples)
+        original_studnet_mu = student_mu[b:]
+        original_student_logvar = student_logvar[b:]
+        augmented_studnet_mu = student_mu[:b]
+        augmented_student_logvar = student_logvar[:b]
+        likeli_loss = -self.Loglikeli(augmented_studnet_mu, augmented_student_logvar, original_studnet_mu,
+                                      original_student_logvar)
 
         # TODO: 4. Combine all Loss in stage one
         loss_1 = (
-            self.weights[0] * vanilla_kd_loss
-            + self.weights[1] * likeli_loss
-            + self.weights[2] * con_sup_loss
+                self.weights[0] * vanilla_kd_loss
+                + self.weights[1] * likeli_loss
+                + self.weights[2] * con_sup_loss
         )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         self.scaler.step(self.optimizer)
         self.scaler.update()
-        original_sample=input[0]
-        change_tensor_to_image(original_sample,"output",f"original{self.epoch}_sample")
-        # TODO: Second Stage
-        inputs_max = self.tran(torch.sigmoid(self.convertor(input, estimation=True)))
-        inputs_max = inputs_max * 0.6 + input * 0.4
-        b, c, h, w = inputs_max.shape
-        augment_sample=inputs_max[0]
-        change_tensor_to_image(augment_sample,"output",f"augment{self.epoch}_sample")
+        original_sample = input[0]
+        change_tensor_to_image(original_sample, "output", f"original{self.epoch}_sample")
 
+        # TODO: Second Stage
+        rand_choose = torch.randperm(input.shape[0])[:int(self.augmented_ratio * input.shape[0])]
+        temp = input.clone()
+        target_temp = target.clone()
+        temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
+        inputs_max = self.tran(torch.sigmoid(self.convertor(temp, estimation=True)))
+        inputs_max = inputs_max * 0.6 + input * 0.4
         data_aug = torch.cat([inputs_max, input])
-        labels = torch.cat([target, target])
+        labels = torch.cat([target_temp, target])
+        b, c, h, w = inputs_max.shape
+        augment_sample = inputs_max[0]
+        change_tensor_to_image(augment_sample, "output", f"augment{self.epoch}_sample")
+
         with torch.cuda.amp.autocast(enabled=True):
-            student_tuples, _ = self.student_model(data_aug, is_feat=True)
+            student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
             student_lambda = student_tuples[-1]
             student_avgpool = self.avgpool2d(student_lambda)
-            studnet_logvar = self.p_logvar(student_avgpool)
+            student_logvar = self.p_logvar(student_avgpool)
             student_mu = self.p_mu(student_avgpool)
-            student_embedding = self.reparametrize(student_mu, studnet_logvar)
+            # student_embedding = self.reparametrize(student_mu, student_logvar)
 
         # TODO: 1. Club loss
-        logvar = studnet_logvar[b:]
-        mu = student_mu[b:]
-        y_samples = student_embedding[:b]
-        club_loss = self.Club(mu, logvar, y_samples)
+        augmented_student_logvar = student_logvar[:b]
+        original_student_logvar = student_logvar[b:]
+        augmented_student_mu = student_mu[:b]
+        original_student_mu = student_mu[b:]
+        club_loss = self.Club(original_student_mu, original_student_logvar, augmented_student_mu,
+                              augmented_student_logvar)
 
-        # TODO: 2. MMD loss
-        e1 = student_embedding[:b]
-        e2 = student_embedding[b:]
-        mmd_loss = self.Mmd(e1, e2, target, num_class=self.num_classes)
+        # TODO: 2. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
+        student_logits=student_logits.float()
+        real_mask = target.bool().repeat(2, 1)
+        fake_mask = ~real_mask  # TODO: 仅仅只有二分之一，因此需要扩张
+        tmp=student_logits[fake_mask]
+        tmp=tmp.view(fake_mask.shape[0],-1)
+        aug_logits, ori_logits = torch.chunk(tmp, 2, 0)
+        contextual_loss = self.Contextual(aug_logits, ori_logits)
+        cross_loss = -torch.log(student_logits[real_mask]).mean()
+        task_loss = cross_loss + contextual_loss
         # TODO: 3. Combine all Loss in stage two
-        loss_2 = self.weights[3] * club_loss + self.weights[4] * mmd_loss
+        loss_2 = self.weights[3] * club_loss + self.weights[4] * task_loss
         self.convertor_optimizer.zero_grad()
         self.scaler.scale(loss_2).backward()
         self.scaler.step(self.convertor_optimizer)
@@ -261,7 +297,7 @@ class LearnDiversifyEnv(object):
             likeli_loss.cpu().item(),
             con_sup_loss.cpu().item(),
             club_loss.cpu().item(),
-            mmd_loss.cpu().item(),
+            task_loss.cpu().item(),
         )
 
     @torch.no_grad()
@@ -292,7 +328,7 @@ class LearnDiversifyEnv(object):
                 likeli_loss,
                 con_sup_loss,
                 club_loss,
-                mmd_loss,
+                task_loss,
             ) = self.run_one_train_batch_size(batch_idx, input, target)
             self.wandb.log(
                 {
@@ -301,7 +337,7 @@ class LearnDiversifyEnv(object):
                     "likeli_loss": likeli_loss,
                     "con_sup_loss": con_sup_loss,
                     "club_loss": club_loss,
-                    "mmd_loss": mmd_loss,
+                    "task_loss": task_loss,
                 },
                 step=self.accumuate_count,
             )
