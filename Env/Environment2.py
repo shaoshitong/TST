@@ -1,6 +1,5 @@
 import os
 import time
-
 import numpy as np
 import timm.scheduler.scheduler
 import torch
@@ -12,8 +11,9 @@ from torchvision import transforms
 from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from utils.augnet import AugNet
+from utils.augnet import BigImageAugNet,SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
+from utils.save_Image import change_tensor_to_image
 
 
 class LearnDiversifyEnv(object):
@@ -61,6 +61,7 @@ class LearnDiversifyEnv(object):
         self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
+        AugNet= BigImageAugNet if not yaml['augnettype'] == "SmallImageAugNet" else SmallImageAugNet
         self.convertor = (
             AugNet(img_size=yaml["img_size"]).cuda()
             if torch.cuda.is_available()
@@ -137,7 +138,7 @@ class LearnDiversifyEnv(object):
             -((mu - y_samples) ** 2) / logvar.exp() - logvar
         ).mean()  # log ( var * e ^ ( (y-mu)^2 / var ) )
 
-    def Club(self, mu, logvar, y_samples):
+    def Club(self, mu, logvar, y_samples): # TODO: mu,logvar -> augmentad sample , y_samples -> original sample
         sample_size = y_samples.shape[0]
         # random_index = torch.randint(sample_size, (sample_size,)).long()
         random_index = torch.randperm(sample_size).long()
@@ -212,11 +213,15 @@ class LearnDiversifyEnv(object):
         self.scaler.scale(loss_1).backward()
         self.scaler.step(self.optimizer)
         self.scaler.update()
-
+        original_sample=input[0]
+        change_tensor_to_image(original_sample,"output",f"original{self.epoch}_sample")
         # TODO: Second Stage
         inputs_max = self.tran(torch.sigmoid(self.convertor(input, estimation=True)))
         inputs_max = inputs_max * 0.6 + input * 0.4
         b, c, h, w = inputs_max.shape
+        augment_sample=inputs_max[0]
+        change_tensor_to_image(augment_sample,"output",f"augment{self.epoch}_sample")
+
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target, target])
         with torch.cuda.amp.autocast(enabled=True):
