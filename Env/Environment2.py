@@ -113,8 +113,8 @@ class LearnDiversifyEnv(object):
         return hard_loss + (temperature ** 2) * soft_loss
 
     def Contextual(self, a, b):
-        acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8)  # (b,)
-        distance = (a.pow(2).sum(-1).sqrt() - b.pow(2).sum(-1).sqrt()) + acosineb
+        acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8) + 1e-8 # (b,)
+        distance = (a.pow(2).sum(-1).sqrt() - b.pow(2).sum(-1).sqrt()).abs() + acosineb
         return -torch.log(distance).mean()
 
     def ConLoss(self, features, labels, temperature=0.07):
@@ -276,7 +276,7 @@ class LearnDiversifyEnv(object):
         tmp=tmp.view(fake_mask.shape[0],-1)
         aug_logits, ori_logits = torch.chunk(tmp, 2, 0)
         contextual_loss = self.Contextual(aug_logits, ori_logits)
-        cross_loss = -torch.log(student_logits[real_mask]).mean()
+        cross_loss = -torch.log(torch.softmax(student_logits,dim=-1)[real_mask]).mean()
         task_loss = cross_loss + contextual_loss
         # TODO: 3. Combine all Loss in stage two
         loss_2 = self.weights[3] * club_loss + self.weights[4] * task_loss
