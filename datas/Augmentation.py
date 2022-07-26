@@ -60,8 +60,8 @@ class Augmentation(nn.Module):
         self.yoco = yoco
         self.mode = mode
         self.num_classes = num_classes
-        self.tran = transforms.Compose([transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-
+        self.tran = transforms.Compose([transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]) if policy=='cifar10' else \
+                    transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     @torch.no_grad()
     def forward(self, x, y):
         if 'autoaugment' in self.mode and 'yoco' not in self.mode:
