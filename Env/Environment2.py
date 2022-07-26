@@ -18,6 +18,15 @@ from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
 
 
+def log_backward(module,grad_inputs,grad_outputs):
+    print("=========")
+    for grad_input in grad_inputs:
+        print(grad_input.norm())
+    for grad_output in grad_outputs:
+        print(grad_output.norm())
+    print(module)
+    print("=========")
+
 class LearnDiversifyEnv(object):
     def __init__(
             self,
@@ -78,16 +87,19 @@ class LearnDiversifyEnv(object):
             transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
         self.p_logvar = (
-            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.LeakyReLU()).cuda()
+            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU()).cuda()
             if torch.cuda.is_available()
-            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.LeakyReLU())
+            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU())
         )
         self.p_mu = (
-            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.LeakyReLU()).cuda()
+            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU()).cuda()
             if torch.cuda.is_available()
-            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.LeakyReLU())
+            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU())
         )
-
+        self.reset_parameters(self.p_mu)
+        self.reset_parameters(self.p_logvar)
+        # self.p_mu.register_backward_hook(log_backward)
+        # self.p_logvar.register_backward_hook(log_backward)
         # TODO: It is important to remember to add the last parameter in the optimizer
         self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
@@ -98,6 +110,13 @@ class LearnDiversifyEnv(object):
         self.augmentation = Augmentation(num_classes=yaml['num_classes'], policy=yaml['augmentation_policy'],
                                          mode=yaml['augmentation_mode'])
         self.augmented_ratio = yaml['augmented_ratio']
+
+    def reset_parameters(self,modules):
+        for module in modules:
+            if isinstance(module,nn.Linear):
+                nn.init.trunc_normal_(module.weight.data,0,0.001)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias.data, 0)
 
     def reparametrize(self, mu, logvar, factor=0.2):
         std = logvar.div(2).exp()
