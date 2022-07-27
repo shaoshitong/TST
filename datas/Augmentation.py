@@ -80,7 +80,6 @@ class Augmentation(nn.Module):
             x = x.type(torch.uint8)
             x = self.yoco(x, self.autoaugment)
             x = self.tran(x / 255)
-
         if 'cutmix' in self.mode:
             x, y = self.cutmix(x, y, num_classes=self.num_classes)
         return x, y

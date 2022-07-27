@@ -16,17 +16,17 @@ augmentation_policy:
 augmentation_mode:
   - autoaugment
 #  - cutmix
-
 img_size:
   32
 sc_lr:
-  0.005
+  0.01
 weights:
+  - 1
   - 1
   - 1
   - 0
   - 1
-  - 1
+  - 0
 augnettype:
   SmallImageAugNet
 data_path:
@@ -77,6 +77,4 @@ criticion:
   temperature:
     4
 augmented_ratio:
-  0.5
-club_balance_alpha:
-  10
+  0
