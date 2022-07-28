@@ -54,7 +54,7 @@ if __name__ == "__main__":
     device = set_device()
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.fastest = False
+    torch.backends.cudnn.fastest = True
     wandb.init(project="RLDCD", entity="seushanshan")
     if yaml_config["amp"]:
         scaler = torch.cuda.amp.GradScaler()

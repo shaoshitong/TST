@@ -34,7 +34,7 @@ class LearnDiversifyEnv(object):
             testloader: DataLoader,
             student_model: nn.Module,
             teacher_model: nn.Module,
-            scheduler,
+            scheduler:torch.optim.lr_scheduler.MultiStepLR,
             optimizer: torch.optim.Optimizer,
             loss: nn.Module,
             yaml,
@@ -81,6 +81,9 @@ class LearnDiversifyEnv(object):
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9
         )
+        self.convertor_scheduler =getattr(torch.optim.lr_scheduler,
+                                          yaml["scheduler"]["type"])( self.convertor_optimizer,
+                                          milestones=yaml["scheduler"]["milestones"],gamma=yaml["scheduler"]["gamma"],)
         self.tran = transforms.Compose(
             [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]) if yaml[
                                                                                                    'augmentation_policy'] == 'cifar10' else \
@@ -441,6 +444,10 @@ class LearnDiversifyEnv(object):
         elif isinstance(self.scheduler, timm.scheduler.scheduler.Scheduler):
             self.scheduler.step(self.epoch)
 
+        if isinstance(self.convertor_scheduler, torch.optim.lr_scheduler.MultiStepLR):
+            self.convertor_scheduler.step()
+        elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
+            self.convertor_scheduler.step(self.epoch)
     def training_in_all_epoch(self):
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()

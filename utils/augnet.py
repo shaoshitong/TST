@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
+from datas.LearningAutoAugment import LearningAutoAugment
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
 
 class Interploate(nn.Module):
     def __init__(self, img_size):
@@ -138,6 +139,9 @@ class BigImageAugNet(nn.Module):
 class SmallImageAugNet(nn.Module):
     def __init__(self, img_size=224):
         super(SmallImageAugNet, self).__init__()
+
+        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=3,H=32,W=32,alpha=0.3)
+        self.style_loss=torch.Tensor([0.]).cuda()
         self.noise_lv = nn.Parameter(torch.zeros(1))
         self.shift_var = nn.Parameter(torch.empty(3, img_size * 2 + 1, img_size * 2 + 1))
         nn.init.normal_(self.shift_var, 1, 0.1)
@@ -182,7 +186,6 @@ class SmallImageAugNet(nn.Module):
                                       ).cuda()
         self.spatial_up3 = nn.Sequential(Interploate(tuple([2 * img_size + 5, 2 * img_size + 5]))).cuda()
         self.color = nn.Conv2d(3, 3, 1).cuda()
-
         for param in list(
                 list(self.color.parameters())
                 + list(self.spatial.parameters())
@@ -205,6 +208,8 @@ class SmallImageAugNet(nn.Module):
         return F.mse_loss(G_B, G_A, reduction='mean')
 
     def forward(self, x, estimation=False):
+        return self.learningautoaugment(x)
+
         if not estimation:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
             x_c = torch.tanh(self.color(x))
@@ -228,11 +233,11 @@ class SmallImageAugNet(nn.Module):
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
             x_c = torch.tanh(self.color(x))
             #
-            x_sdown = self.spatial_up(x)
+            x_sdown = self.spatial_up(x )
             x_sdown = self.shift_var * self.norm(x_sdown) + self.shift_mean
             x_s = torch.tanh(self.spatial(x_sdown))
             #
-            x_s2down = self.spatial_up2(x)
+            x_s2down = self.spatial_up2(x )
             x_s2down = self.shift_var2 * self.norm(x_s2down) + self.shift_mean2
             x_s2 = torch.tanh(self.spatial2(x_s2down))
 
@@ -241,6 +246,7 @@ class SmallImageAugNet(nn.Module):
             x_s3 = torch.tanh(self.spatial3(x_s3down))
             output = (x_c + x_s + x_s2 + x_s3) / 4
             x_out_list = [x_c, x_s, x_s2, x_s3]
-            choose_1, choose_2 = np.random.choice(np.arange(4), 2, False)
-            self.style_loss = -torch.log(self.gram_matrix(x_out_list[choose_1], x_out_list[choose_2]))
+            self.style_loss = -torch.log(self.gram_matrix(x_out_list[0], x_out_list[1]))\
+                              -torch.log(self.gram_matrix(x_out_list[1], x_out_list[2]))\
+                              -torch.log(self.gram_matrix(x_out_list[2], x_out_list[3]))
             return output
