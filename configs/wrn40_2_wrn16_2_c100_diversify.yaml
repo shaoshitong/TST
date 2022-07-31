@@ -11,6 +11,11 @@ tcheckpoint:
   wrn_40_2.pth
 checkpoint:
 
+LAA:
+  C: 3
+  H: 32
+  W: 32
+  p: 0.25
 augmentation_policy:
   cifar10
 augmentation_mode:
@@ -26,7 +31,6 @@ weights:
   - 1
   - 1
   - 1
-  - 0
 augnettype:
   SmallImageAugNet
 data_path:

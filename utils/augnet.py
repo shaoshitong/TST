@@ -137,13 +137,12 @@ class BigImageAugNet(nn.Module):
 
 
 class SmallImageAugNet(nn.Module):
-    def __init__(self, img_size=224):
+    def __init__(self, img_size=224,yaml=None):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
         self.alpha=1
-        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=3,H=32,W=32,alpha=self.alpha)
+        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=yaml['LAA']['C'],H=yaml['LAA']['H'],W=yaml['LAA']['W'],p=yaml['LAA']['p'])
         print(f"alpha is {self.alpha}")
-        self.style_loss=torch.Tensor([0.]).cuda()
         self.noise_lv = nn.Parameter(torch.zeros(1))
 
         self.shift_var = nn.Parameter(torch.empty(3, img_size * 2 + 1, img_size * 2 + 1))
@@ -200,16 +199,6 @@ class SmallImageAugNet(nn.Module):
         ):
             param.requires_grad = True
 
-    def gram_matrix(self, input, target):
-        a, b, c, d = input.size()  # a=batch size(=1)
-        features = input.view(a, b, c * d)  # resise F_XL into \hat F_XL
-        G_A = torch.matmul(features, features.permute(0, 2, 1)) / (b * c * d)  # a,b,b
-
-        a, b, c, d = target.size()  # a=batch size(=1)
-        features = target.view(a, b, c * d)  # resise F_XL into \hat F_XL
-        G_B = torch.matmul(features, features.permute(0, 2, 1)) / (c * d)  # a,b,b
-        return F.mse_loss(G_B, G_A, reduction='mean')
-
     def forward(self, x, estimation=False):
         return self.learningautoaugment(x,estimation)
 
@@ -248,8 +237,4 @@ class SmallImageAugNet(nn.Module):
             x_s3down = self.shift_var3 * self.norm(x_s3down) + self.shift_mean3
             x_s3 = torch.tanh(self.spatial3(x_s3down))
             output = (x_c + x_s + x_s2 + x_s3) / 4
-            x_out_list = [x_c, x_s, x_s2, x_s3]
-            self.style_loss = -torch.log(self.gram_matrix(x_out_list[0], x_out_list[1]))\
-                              -torch.log(self.gram_matrix(x_out_list[1], x_out_list[2]))\
-                              -torch.log(self.gram_matrix(x_out_list[2], x_out_list[3]))
             return output

@@ -74,9 +74,9 @@ class LearnDiversifyEnv(object):
         # TODO: Learning to diversify
         AugNet = BigImageAugNet if not yaml['augnettype'] == "SmallImageAugNet" else SmallImageAugNet
         self.convertor = (
-            AugNet(img_size=yaml["img_size"]).cuda()
+            AugNet(img_size=yaml["img_size"],yaml=yaml).cuda()
             if torch.cuda.is_available()
-            else AugNet(img_size=yaml["img_size"]).cpu()
+            else AugNet(img_size=yaml["img_size"],yaml=yaml).cpu()
         )
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9
@@ -101,8 +101,6 @@ class LearnDiversifyEnv(object):
         )
         self.reset_parameters(self.p_mu)
         self.reset_parameters(self.p_logvar)
-        # self.p_mu.register_backward_hook(log_backward)
-        # self.p_logvar.register_backward_hook(log_backward)
         # TODO: It is important to remember to add the last parameter in the optimizer
         self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
@@ -325,20 +323,16 @@ class LearnDiversifyEnv(object):
         distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction='batchmean')
         task_loss= distance2 + distance1
 
-        # TODO: 4 Style Loss  (确保每种模块生成的图片风格是不同的)
-        style_loss=self.convertor.style_loss
-
-        # TODO: 5.to Combine all Loss in stage two
+        # TODO: 4.to Combine all Loss in stage two
         loss_2 =(  self.weights[2] * con_sup_loss
                   + self.weights[3] * club_loss
-                  + self.weights[4] * task_loss
-                  + self.weights[5] * style_loss)
+                  + self.weights[4] * task_loss )
 
-        # TODO: M
-        # self.convertor_optimizer.zero_grad()
-        # self.scaler.scale(loss_2).backward()
-        # self.scaler.step(self.convertor_optimizer)
-        # self.scaler.update()
+        # TODO: update params
+        self.convertor_optimizer.zero_grad()
+        self.scaler.scale(loss_2).backward()
+        self.scaler.step(self.convertor_optimizer)
+        self.scaler.update()
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
@@ -354,7 +348,6 @@ class LearnDiversifyEnv(object):
             con_sup_loss.cpu().item(),
             club_loss.cpu().item(),
             task_loss.cpu().item(),
-            style_loss.cpu().item()
         )
 
     @torch.no_grad()
@@ -386,7 +379,6 @@ class LearnDiversifyEnv(object):
                 con_sup_loss,
                 club_loss,
                 task_loss,
-                style_loss
             ) = self.run_one_train_batch_size(batch_idx, input, target)
             self.wandb.log(
                 {
@@ -396,7 +388,6 @@ class LearnDiversifyEnv(object):
                     "con_sup_loss": con_sup_loss,
                     "club_loss": club_loss,
                     "task_loss": task_loss,
-                    'style_Loss': style_loss
                 },
                 step=self.accumuate_count,
             )
