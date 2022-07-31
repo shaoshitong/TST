@@ -10,6 +10,13 @@ import torch.nn as nn
 from torchvision.transforms import functional as F
 
 
+class Normalize(nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self,x):
+        x=F.normalize(x,x.mean(0,keepdim=True),x.std(0,keepdim=True)+1e-6,inplace=False)
+        return x
+
 class Flow_Attention(nn.Module):
     # flow attention in normal version
     def __init__(self, d_input, d_model, d_output, n_heads, drop_out=0.05, eps=1e-6):
@@ -166,7 +173,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         )
         # TODO: 重建对应所有的算子
         self.policies_set = []
-        self.alpha = 0.7
+        self.alpha = alpha
         self.C = C
         self.H = H
         self.W = W
@@ -189,8 +196,13 @@ class LearningAutoAugment(transforms.AutoAugment):
         self.fc.add_module('fc1',nn.Linear(C * H * W, 512))
         self.fc.add_module('relu',nn.ReLU(inplace=True))
         self.fc.add_module('fc2',nn.Linear(512, 1))
+        self.p=0.25
+        for param in list(
+              list(self.fc.parameters())
+        ):
+            param.requires_grad = True
 
-    def forward(self, img: Tensor) -> Tensor:
+    def forward(self, img: Tensor, estimation=False) -> Tensor:
         """
         Tensor -> Tensor (to translate)
         """
@@ -214,7 +226,9 @@ class LearningAutoAugment(transforms.AutoAugment):
         elif fill is not None:
             fill = [float(f) for f in fill]
 
-        randperm = torch.randperm(len(self.policies))
+        # TODO: M
+        # randperm = torch.randperm(len(self.policies))
+        randperm = torch.arange(len(self.policies))
         img_size = F.get_image_size(img)
         op_meta = self._augmentation_space(10, img_size)
         # TODO: 让每种操作都进行，所以模型该学习何物？
@@ -226,13 +240,20 @@ class LearningAutoAugment(transforms.AutoAugment):
             sign = torch.randint(2, (1,))
             policy = self.policies[randindex]
             (op_name, p, magnitude_id) = policy
-
-            if prob <= p:
+            # TODO: M
+            p=self.p
+            if (prob <= p):
                 magnitudes, signed = op_meta[op_name]
                 magnitude = float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
                 if signed and sign:
                     magnitude *= -1.0
                 img = _apply_op(img, op_name, magnitude, interpolation=self.interpolation, fill=fill)
+            # elif estimation:
+            #     magnitudes, signed = op_meta[op_name]
+            #     magnitude = float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+            #     if signed and sign:
+            #         magnitude *= -1.0
+            #     img = torch.clip(_apply_op(img, op_name, magnitude, interpolation=self.interpolation, fill=fill) * p + (1 - p) * img,0,255).type(torch.uint8)
             results.append(self.tran(img / 255))
         results = torch.stack(results, 0)  # P,B,C,H,W
         P, B, C, H, W = results.shape
@@ -240,11 +261,14 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
-        attention_vector = self.fc(results[1:]).softmax(0)
+        attention_vector = self.fc(results[1:]).softmax(0).clone()
+        # TODO: M
+        with torch.no_grad():
+            attention_vector[...]=torch.Tensor([1.]).to(attention_vector.device)
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         different_vector = attention_vector - torch.cat([attention_vector[1:], attention_vector[0].unsqueeze(0)], 0)
         different_vector[-1] = attention_vector[-1]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
-        result = ((different_vector * results[1:]).sum(0) * (1 - self.alpha) + results[0] * self.alpha).view(B, C, H, W)
+        result = ((different_vector * results[1:]).sum(0) * (self.alpha) + results[0] *  (1-self.alpha) ).view(B, C, H, W)
         return result
 
 #

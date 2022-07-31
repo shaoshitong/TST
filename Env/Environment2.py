@@ -219,7 +219,7 @@ class LearnDiversifyEnv(object):
         target_temp = target.clone()
         if rand_choose.shape[0]>0:
             temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
-        inputs_max = self.tran(torch.sigmoid(self.convertor(temp)))
+        inputs_max = self.convertor(temp)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
         b, c, h, w = inputs_max.shape
@@ -276,7 +276,7 @@ class LearnDiversifyEnv(object):
         target_temp = target.clone()
         if rand_choose.shape[0]>0:
             temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
-        inputs_max = self.tran(torch.sigmoid(self.convertor(temp, estimation=True)))
+        inputs_max =self.convertor(temp, estimation=True)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
         data_aug = torch.cat([inputs_max, input])
@@ -333,10 +333,12 @@ class LearnDiversifyEnv(object):
                   + self.weights[3] * club_loss
                   + self.weights[4] * task_loss
                   + self.weights[5] * style_loss)
-        self.convertor_optimizer.zero_grad()
-        self.scaler.scale(loss_2).backward()
-        self.scaler.step(self.convertor_optimizer)
-        self.scaler.update()
+
+        # TODO: M
+        # self.convertor_optimizer.zero_grad()
+        # self.scaler.scale(loss_2).backward()
+        # self.scaler.step(self.convertor_optimizer)
+        # self.scaler.update()
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))

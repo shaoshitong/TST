@@ -139,10 +139,13 @@ class BigImageAugNet(nn.Module):
 class SmallImageAugNet(nn.Module):
     def __init__(self, img_size=224):
         super(SmallImageAugNet, self).__init__()
-
-        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=3,H=32,W=32,alpha=0.3)
+        # TODO: M
+        self.alpha=1
+        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=3,H=32,W=32,alpha=self.alpha)
+        print(f"alpha is {self.alpha}")
         self.style_loss=torch.Tensor([0.]).cuda()
         self.noise_lv = nn.Parameter(torch.zeros(1))
+
         self.shift_var = nn.Parameter(torch.empty(3, img_size * 2 + 1, img_size * 2 + 1))
         nn.init.normal_(self.shift_var, 1, 0.1)
         self.shift_mean = nn.Parameter(torch.zeros(3, img_size * 2 + 1, img_size * 2 + 1))
@@ -208,7 +211,7 @@ class SmallImageAugNet(nn.Module):
         return F.mse_loss(G_B, G_A, reduction='mean')
 
     def forward(self, x, estimation=False):
-        return self.learningautoaugment(x)
+        return self.learningautoaugment(x,estimation)
 
         if not estimation:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
