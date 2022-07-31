@@ -10,9 +10,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-import wandb
 from omegaconf import OmegaConf
 
+import wandb
 from Env.Environment2 import *
 
 sys.path.append(os.path.join(os.getcwd()))

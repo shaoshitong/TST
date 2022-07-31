@@ -45,11 +45,11 @@ def mmd_rbf(source, target, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2)
 
 
 def conditional_mmd_rbf(
-        source, target, label, num_class, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2
+    source, target, label, num_class, kernel_mul=2.0, kernel_num=5, fix_sigma=None, ver=2
 ):
     loss = 0
     for i in range(num_class):
-        indice = (label == i)
+        indice = label == i
         if indice.sum() > 0:
             source_i = source[indice]
             target_i = target[indice]

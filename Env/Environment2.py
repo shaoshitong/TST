@@ -1,5 +1,6 @@
 import os
 import time
+
 import numpy as np
 import timm.scheduler.scheduler
 import torch
@@ -9,7 +10,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from datas.Augmentation import Augmentation
-
 from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
@@ -18,7 +18,7 @@ from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
 
 
-def log_backward(module,grad_inputs,grad_outputs):
+def log_backward(module, grad_inputs, grad_outputs):
     print("=========")
     for grad_input in grad_inputs:
         print(grad_input.norm())
@@ -27,19 +27,20 @@ def log_backward(module,grad_inputs,grad_outputs):
     print(module)
     print("=========")
 
+
 class LearnDiversifyEnv(object):
     def __init__(
-            self,
-            dataloader: DataLoader,
-            testloader: DataLoader,
-            student_model: nn.Module,
-            teacher_model: nn.Module,
-            scheduler:torch.optim.lr_scheduler.MultiStepLR,
-            optimizer: torch.optim.Optimizer,
-            loss: nn.Module,
-            yaml,
-            wandb,
-            device=None,
+        self,
+        dataloader: DataLoader,
+        testloader: DataLoader,
+        student_model: nn.Module,
+        teacher_model: nn.Module,
+        scheduler: torch.optim.lr_scheduler.MultiStepLR,
+        optimizer: torch.optim.Optimizer,
+        loss: nn.Module,
+        yaml,
+        wandb,
+        device=None,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -72,32 +73,63 @@ class LearnDiversifyEnv(object):
         self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
-        AugNet = BigImageAugNet if not yaml['augnettype'] == "SmallImageAugNet" else SmallImageAugNet
+        AugNet = (
+            BigImageAugNet if not yaml["augnettype"] == "SmallImageAugNet" else SmallImageAugNet
+        )
         self.convertor = (
-            AugNet(img_size=yaml["img_size"],yaml=yaml).cuda()
+            AugNet(img_size=yaml["img_size"], yaml=yaml).cuda()
             if torch.cuda.is_available()
-            else AugNet(img_size=yaml["img_size"],yaml=yaml).cpu()
+            else AugNet(img_size=yaml["img_size"], yaml=yaml).cpu()
         )
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9
         )
-        self.convertor_scheduler =getattr(torch.optim.lr_scheduler,
-                                          yaml["scheduler"]["type"])( self.convertor_optimizer,
-                                          milestones=yaml["scheduler"]["milestones"],gamma=yaml["scheduler"]["gamma"],)
-        self.tran = transforms.Compose(
-            [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]) if yaml[
-                                                                                                   'augmentation_policy'] == 'cifar10' else \
-            transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
+            self.convertor_optimizer,
+            milestones=yaml["scheduler"]["milestones"],
+            gamma=yaml["scheduler"]["gamma"],
+        )
+        self.tran = (
+            transforms.Compose(
+                [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
+            )
+            if yaml["augmentation_policy"] == "cifar10"
+            else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        )
         self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
         self.p_logvar = (
-            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU()).cuda()
+            nn.Sequential(
+                nn.Linear(self.student_model.last_channel, 512),
+                nn.GELU(),
+                nn.Linear(512, 512),
+                nn.LayerNorm(512),
+                nn.LeakyReLU(),
+            ).cuda()
             if torch.cuda.is_available()
-            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU())
+            else nn.Sequential(
+                nn.Linear(self.student_model.last_channel, 512),
+                nn.GELU(),
+                nn.Linear(512, 512),
+                nn.LayerNorm(512),
+                nn.LeakyReLU(),
+            )
         )
         self.p_mu = (
-            nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU()).cuda()
+            nn.Sequential(
+                nn.Linear(self.student_model.last_channel, 512),
+                nn.GELU(),
+                nn.Linear(512, 512),
+                nn.LayerNorm(512),
+                nn.LeakyReLU(),
+            ).cuda()
             if torch.cuda.is_available()
-            else nn.Sequential(nn.Linear(self.student_model.last_channel, 512), nn.GELU(), nn.Linear(512, 512),nn.LayerNorm(512), nn.LeakyReLU())
+            else nn.Sequential(
+                nn.Linear(self.student_model.last_channel, 512),
+                nn.GELU(),
+                nn.Linear(512, 512),
+                nn.LayerNorm(512),
+                nn.LeakyReLU(),
+            )
         )
         self.reset_parameters(self.p_mu)
         self.reset_parameters(self.p_logvar)
@@ -108,14 +140,17 @@ class LearnDiversifyEnv(object):
         self.weights = yaml["weights"]
 
         # TODO: Natural Aumentation (i.e., AutoAugment, Cutmix, YOCO)
-        self.augmentation = Augmentation(num_classes=yaml['num_classes'], policy=yaml['augmentation_policy'],
-                                         mode=yaml['augmentation_mode'])
-        self.augmented_ratio = yaml['augmented_ratio']
+        self.augmentation = Augmentation(
+            num_classes=yaml["num_classes"],
+            policy=yaml["augmentation_policy"],
+            mode=yaml["augmentation_mode"],
+        )
+        self.augmented_ratio = yaml["augmented_ratio"]
 
-    def reset_parameters(self,modules):
+    def reset_parameters(self, modules):
         for module in modules:
-            if isinstance(module,nn.Linear):
-                nn.init.trunc_normal_(module.weight.data,0,0.001)
+            if isinstance(module, nn.Linear):
+                nn.init.trunc_normal_(module.weight.data, 0, 0.001)
                 if module.bias is not None:
                     nn.init.constant_(module.bias.data, 0)
 
@@ -131,8 +166,11 @@ class LearnDiversifyEnv(object):
             torch.softmax(teacher_output / temperature, dim=1),
             reduction="batchmean",
         )
-        hard_loss = F.kl_div(torch.log_softmax(student_output, dim=-1), targets,
-                             reduction='batchmean') if targets != None else 0.0
+        hard_loss = (
+            F.kl_div(torch.log_softmax(student_output, dim=-1), targets, reduction="batchmean")
+            if targets != None
+            else 0.0
+        )
         return hard_loss + (temperature ** 2) * soft_loss
 
     def Contextual(self, a, b):
@@ -170,7 +208,7 @@ class LearnDiversifyEnv(object):
         return loss
 
     def Loglikeli(self, mu, logvar, y_samples):
-        return (-(mu - y_samples) ** 2 / logvar.exp() - logvar).mean()
+        return (-((mu - y_samples) ** 2) / logvar.exp() - logvar).mean()
 
     def Club(self, mu, logvar, y_samples, t_mu, t_logvar, t_y_samples):
 
@@ -183,15 +221,13 @@ class LearnDiversifyEnv(object):
         # upper_bound = (positive.sum(dim=-1) - negative.sum(dim=-1)).mean()
         # return upper_bound / 2. # TODO; CLUB Sample
 
-        positive = - (mu - y_samples) ** 2 / 2. / logvar.exp()
+        positive = -((mu - y_samples) ** 2) / 2.0 / logvar.exp()
         prediction_1 = mu.unsqueeze(1)  # shape [nsample,1,dim]
         y_samples_1 = y_samples.unsqueeze(0)  # shape [1,nsample,dim]
-        negative = - ((y_samples_1 - prediction_1) ** 2).mean(dim=1) / 2. / logvar.exp()
+        negative = -((y_samples_1 - prediction_1) ** 2).mean(dim=1) / 2.0 / logvar.exp()
         student_mi = (positive.sum(dim=-1) - negative.sum(dim=-1)).mean()
 
         return student_mi
-
-
 
     def Mmd(self, e1, e2, target, num_class):
         return conditional_mmd_rbf(e1, e2, target, num_class)
@@ -212,11 +248,13 @@ class LearnDiversifyEnv(object):
         target = F.one_hot(target, num_classes=self.num_classes).float()
 
         # TODO: Learning to diversify
-        rand_choose = torch.randperm(input.shape[0])[:int(self.augmented_ratio * input.shape[0])]
+        rand_choose = torch.randperm(input.shape[0])[: int(self.augmented_ratio * input.shape[0])]
         temp = input.clone()
         target_temp = target.clone()
-        if rand_choose.shape[0]>0:
-            temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
+        if rand_choose.shape[0] > 0:
+            temp[rand_choose], target_temp[rand_choose] = self.augmentation(
+                temp[rand_choose], target_temp[rand_choose]
+            )
         inputs_max = self.convertor(temp)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
@@ -247,7 +285,9 @@ class LearnDiversifyEnv(object):
         # TODO: 2. Lilikehood Loss student and teacher
         augmented_studnet_mu = student_mu[:b]
         augmented_student_logvar = student_logvar[:b]
-        likeli_loss = -self.Loglikeli(augmented_studnet_mu, augmented_student_logvar, student_embedding[b:])
+        likeli_loss = -self.Loglikeli(
+            augmented_studnet_mu, augmented_student_logvar, student_embedding[b:]
+        )
         augmented_teacher_mu = teacher_mu[:b]
         augmented_teacher_logvar = teacher_logvar[:b]
         new_mu = torch.cat([augmented_studnet_mu, augmented_teacher_mu])
@@ -256,10 +296,7 @@ class LearnDiversifyEnv(object):
         likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
 
         # TODO: 3. Combine all Loss in stage one
-        loss_1 = (
-                self.weights[0] * vanilla_kd_loss
-                + self.weights[1] * likeli_loss
-        )
+        loss_1 = self.weights[0] * vanilla_kd_loss + self.weights[1] * likeli_loss
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         self.scaler.step(self.optimizer)
@@ -269,12 +306,14 @@ class LearnDiversifyEnv(object):
         augment_sample = inputs_max[0]
         change_tensor_to_image(augment_sample, "output", f"augment{self.epoch}_sample")
         # TODO: Second Stage
-        rand_choose = torch.randperm(input.shape[0])[:int(self.augmented_ratio * input.shape[0])]
+        rand_choose = torch.randperm(input.shape[0])[: int(self.augmented_ratio * input.shape[0])]
         temp = input.clone()
         target_temp = target.clone()
-        if rand_choose.shape[0]>0:
-            temp[rand_choose], target_temp[rand_choose] = self.augmentation(temp[rand_choose], target_temp[rand_choose])
-        inputs_max =self.convertor(temp, estimation=True)
+        if rand_choose.shape[0] > 0:
+            temp[rand_choose], target_temp[rand_choose] = self.augmentation(
+                temp[rand_choose], target_temp[rand_choose]
+            )
+        inputs_max = self.convertor(temp, estimation=True)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
         data_aug = torch.cat([inputs_max, input])
@@ -300,8 +339,14 @@ class LearnDiversifyEnv(object):
         augmented_student_mu = student_mu[:b]
         augmented_teacher_logvar = teacher_logvar[:b]
         augmented_teacher_mu = teacher_mu[:b]
-        club_loss = self.Club(augmented_student_mu, augmented_student_logvar, student_embedding[b:],
-                              augmented_teacher_mu, augmented_teacher_logvar, teacher_embedding[b:])
+        club_loss = self.Club(
+            augmented_student_mu,
+            augmented_student_logvar,
+            student_embedding[b:],
+            augmented_teacher_mu,
+            augmented_teacher_logvar,
+            teacher_embedding[b:],
+        )
 
         # TODO: 2. Consup loss (XXX)
         # teacher_embedding_augmented = F.normalize(teacher_embedding[:b]).unsqueeze(1)
@@ -309,7 +354,7 @@ class LearnDiversifyEnv(object):
         # con_sup_loss = self.ConLoss(
         #     torch.cat([teacher_embedding_original, teacher_embedding_augmented], dim=1), target.argmax(1)
         # )
-        con_sup_loss=torch.Tensor([0.]).cuda()
+        con_sup_loss = torch.Tensor([0.0]).cuda()
 
         # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
         student_logits = student_logits.float()
@@ -317,16 +362,23 @@ class LearnDiversifyEnv(object):
         # fake_mask = ~real_mask # TODO: 仅仅只有二分之一，因此需要扩张
         aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
         t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
-        distance1 = -F.kl_div((aug_logits/self.yaml['criticion']['temperature']).log_softmax(1),
-                              (t_aug_logits/self.yaml['criticion']['temperature']).softmax(1), reduction='batchmean') *\
-                    (self.yaml['criticion']['temperature']**2)
-        distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction='batchmean')
-        task_loss= distance2 + distance1
+        distance1 = (
+            -F.kl_div(
+                (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
+                (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
+                reduction="batchmean",
+            )
+            * (self.yaml["criticion"]["temperature"] ** 2)
+        )
+        distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
+        task_loss = distance2 + distance1
 
         # TODO: 4.to Combine all Loss in stage two
-        loss_2 =(  self.weights[2] * con_sup_loss
-                  + self.weights[3] * club_loss
-                  + self.weights[4] * task_loss )
+        loss_2 = (
+            self.weights[2] * con_sup_loss
+            + self.weights[3] * club_loss
+            + self.weights[4] * task_loss
+        )
 
         # TODO: update params
         self.convertor_optimizer.zero_grad()
@@ -441,6 +493,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step()
         elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
             self.convertor_scheduler.step(self.epoch)
+
     def training_in_all_epoch(self):
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()

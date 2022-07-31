@@ -1,9 +1,11 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from datas.LearningAutoAugment import LearningAutoAugment
 from torchvision.transforms.autoaugment import AutoAugmentPolicy
+
+from datas.LearningAutoAugment import LearningAutoAugment
+
 
 class Interploate(nn.Module):
     def __init__(self, img_size):
@@ -11,7 +13,7 @@ class Interploate(nn.Module):
         self.img_size = img_size
 
     def forward(self, x):
-        return F.interpolate(x, self.img_size, mode='nearest')
+        return F.interpolate(x, self.img_size, mode="nearest")
 
 
 class BigImageAugNet(nn.Module):
@@ -55,15 +57,15 @@ class BigImageAugNet(nn.Module):
         self.color = nn.Conv2d(3, 3, 1).cuda()
 
         for param in list(
-                list(self.color.parameters())
-                + list(self.spatial.parameters())
-                + list(self.spatial_up.parameters())
-                + list(self.spatial2.parameters())
-                + list(self.spatial_up2.parameters())
-                + list(self.spatial3.parameters())
-                + list(self.spatial_up3.parameters())
-                + list(self.spatial4.parameters())
-                + list(self.spatial_up4.parameters())
+            list(self.color.parameters())
+            + list(self.spatial.parameters())
+            + list(self.spatial_up.parameters())
+            + list(self.spatial2.parameters())
+            + list(self.spatial_up2.parameters())
+            + list(self.spatial3.parameters())
+            + list(self.spatial_up3.parameters())
+            + list(self.spatial4.parameters())
+            + list(self.spatial_up4.parameters())
         ):
             param.requires_grad = False
 
@@ -106,12 +108,12 @@ class BigImageAugNet(nn.Module):
             x_s4 = torch.tanh(spatial_up4(x_s4down))
 
             output = (
-                             weight[0] * x_c
-                             + weight[1] * x_s
-                             + weight[2] * x_s2
-                             + weight[3] * x_s3
-                             + weight[4] * x_s4
-                     ) / weight.sum()
+                weight[0] * x_c
+                + weight[1] * x_s
+                + weight[2] * x_s2
+                + weight[3] * x_s3
+                + weight[4] * x_s4
+            ) / weight.sum()
         else:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
             x_c = torch.tanh(self.color(x))
@@ -137,11 +139,17 @@ class BigImageAugNet(nn.Module):
 
 
 class SmallImageAugNet(nn.Module):
-    def __init__(self, img_size=224,yaml=None):
+    def __init__(self, img_size=224, yaml=None):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
-        self.alpha=1
-        self.learningautoaugment=LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10,C=yaml['LAA']['C'],H=yaml['LAA']['H'],W=yaml['LAA']['W'],p=yaml['LAA']['p'])
+        self.alpha = 1
+        self.learningautoaugment = LearningAutoAugment(
+            policy=AutoAugmentPolicy.CIFAR10,
+            C=yaml["LAA"]["C"],
+            H=yaml["LAA"]["H"],
+            W=yaml["LAA"]["W"],
+            p=yaml["LAA"]["p"],
+        )
         print(f"alpha is {self.alpha}")
         self.noise_lv = nn.Parameter(torch.zeros(1))
 
@@ -164,43 +172,52 @@ class SmallImageAugNet(nn.Module):
 
         ############## Fixed Parameters (For MI estimation
         self.spatial = nn.Conv2d(3, 3, 3, 2).cuda()
-        self.spatial = nn.Sequential(nn.ReflectionPad2d((1, 1, 1, 1)),
-                                     nn.Conv2d(3, 3, 3, 1, 0),
-                                     nn.BatchNorm2d(3),
-                                     nn.LeakyReLU(),
-                                     nn.Conv2d(3, 3, 3, 2)
-                                     ).cuda()
-        self.spatial_up = nn.Sequential(Interploate(tuple([2 * img_size + 1, 2 * img_size + 1]))).cuda()
+        self.spatial = nn.Sequential(
+            nn.ReflectionPad2d((1, 1, 1, 1)),
+            nn.Conv2d(3, 3, 3, 1, 0),
+            nn.BatchNorm2d(3),
+            nn.LeakyReLU(),
+            nn.Conv2d(3, 3, 3, 2),
+        ).cuda()
+        self.spatial_up = nn.Sequential(
+            Interploate(tuple([2 * img_size + 1, 2 * img_size + 1]))
+        ).cuda()
 
-        self.spatial2 = nn.Sequential(nn.ReflectionPad2d((2, 2, 2, 2)),
-                                      nn.Conv2d(3, 3, 5, 1, 0),
-                                      nn.BatchNorm2d(3),
-                                      nn.LeakyReLU(),
-                                      nn.Conv2d(3, 3, 5, 2)
-                                      ).cuda()
-        self.spatial_up2 = nn.Sequential(Interploate(tuple([2 * img_size + 3, 2 * img_size + 3]))).cuda()
+        self.spatial2 = nn.Sequential(
+            nn.ReflectionPad2d((2, 2, 2, 2)),
+            nn.Conv2d(3, 3, 5, 1, 0),
+            nn.BatchNorm2d(3),
+            nn.LeakyReLU(),
+            nn.Conv2d(3, 3, 5, 2),
+        ).cuda()
+        self.spatial_up2 = nn.Sequential(
+            Interploate(tuple([2 * img_size + 3, 2 * img_size + 3]))
+        ).cuda()
 
-        self.spatial3 = nn.Sequential(nn.ReflectionPad2d((3, 3, 3, 3)),
-                                      nn.Conv2d(3, 3, 7, 1, 0),
-                                      nn.BatchNorm2d(3),
-                                      nn.LeakyReLU(),
-                                      nn.Conv2d(3, 3, 7, 2)
-                                      ).cuda()
-        self.spatial_up3 = nn.Sequential(Interploate(tuple([2 * img_size + 5, 2 * img_size + 5]))).cuda()
+        self.spatial3 = nn.Sequential(
+            nn.ReflectionPad2d((3, 3, 3, 3)),
+            nn.Conv2d(3, 3, 7, 1, 0),
+            nn.BatchNorm2d(3),
+            nn.LeakyReLU(),
+            nn.Conv2d(3, 3, 7, 2),
+        ).cuda()
+        self.spatial_up3 = nn.Sequential(
+            Interploate(tuple([2 * img_size + 5, 2 * img_size + 5]))
+        ).cuda()
         self.color = nn.Conv2d(3, 3, 1).cuda()
         for param in list(
-                list(self.color.parameters())
-                + list(self.spatial.parameters())
-                + list(self.spatial_up.parameters())
-                + list(self.spatial2.parameters())
-                + list(self.spatial_up2.parameters())
-                + list(self.spatial3.parameters())
-                + list(self.spatial_up3.parameters())
+            list(self.color.parameters())
+            + list(self.spatial.parameters())
+            + list(self.spatial_up.parameters())
+            + list(self.spatial2.parameters())
+            + list(self.spatial_up2.parameters())
+            + list(self.spatial3.parameters())
+            + list(self.spatial_up3.parameters())
         ):
             param.requires_grad = True
 
     def forward(self, x, estimation=False):
-        return self.learningautoaugment(x,estimation)
+        return self.learningautoaugment(x, estimation)
 
         if not estimation:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
@@ -219,17 +236,19 @@ class SmallImageAugNet(nn.Module):
             x_s3 = torch.tanh(self.spatial3(x_s3down))
 
             weight = torch.rand(4)
-            output = (x_c * weight[0] + x_s * weight[1] + x_s2 * weight[2] + x_s3 * weight[3]) / weight.sum()
+            output = (
+                x_c * weight[0] + x_s * weight[1] + x_s2 * weight[2] + x_s3 * weight[3]
+            ) / weight.sum()
             return output
         else:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
             x_c = torch.tanh(self.color(x))
             #
-            x_sdown = self.spatial_up(x )
+            x_sdown = self.spatial_up(x)
             x_sdown = self.shift_var * self.norm(x_sdown) + self.shift_mean
             x_s = torch.tanh(self.spatial(x_sdown))
             #
-            x_s2down = self.spatial_up2(x )
+            x_s2down = self.spatial_up2(x)
             x_s2down = self.shift_var2 * self.norm(x_s2down) + self.shift_mean2
             x_s2 = torch.tanh(self.spatial2(x_s2down))
 

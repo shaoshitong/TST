@@ -1,21 +1,31 @@
 import copy
+import math
 
+import numpy as np
 import PIL.Image
+import torch
+import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
-from torchvision.transforms.autoaugment import AutoAugmentPolicy, InterpolationMode, Optional, List, Tensor, Tuple
-import torch, math
-import numpy as np
-import torch.nn as nn
 from torchvision.transforms import functional as F
+from torchvision.transforms.autoaugment import (
+    AutoAugmentPolicy,
+    InterpolationMode,
+    List,
+    Optional,
+    Tensor,
+    Tuple,
+)
 
 
 class Normalize(nn.Module):
     def __init__(self):
         super().__init__()
-    def forward(self,x):
-        x=F.normalize(x,x.mean(0,keepdim=True),x.std(0,keepdim=True)+1e-6,inplace=False)
+
+    def forward(self, x):
+        x = F.normalize(x, x.mean(0, keepdim=True), x.std(0, keepdim=True) + 1e-6, inplace=False)
         return x
+
 
 class Flow_Attention(nn.Module):
     # flow attention in normal version
@@ -54,22 +64,40 @@ class Flow_Attention(nn.Module):
         keys = self.kernel_method(keys)
         ## 3. Flow-Attention
         # (1) Calculate incoming and outgoing flow
-        sink_incoming = 1.0 / (torch.einsum("nhld,nhd->nhl", queries + self.eps, keys.sum(dim=2) + self.eps))
-        source_outgoing = 1.0 / (torch.einsum("nhld,nhd->nhl", keys + self.eps, queries.sum(dim=2) + self.eps))
+        sink_incoming = 1.0 / (
+            torch.einsum("nhld,nhd->nhl", queries + self.eps, keys.sum(dim=2) + self.eps)
+        )
+        source_outgoing = 1.0 / (
+            torch.einsum("nhld,nhd->nhl", keys + self.eps, queries.sum(dim=2) + self.eps)
+        )
         # (2) conservation refine for source and sink
-        conserved_sink = torch.einsum("nhld,nhd->nhl", queries + self.eps,
-                                      (keys * source_outgoing[:, :, :, None]).sum(dim=2) + self.eps)
-        conserved_source = torch.einsum("nhld,nhd->nhl", keys + self.eps,
-                                        (queries * sink_incoming[:, :, :, None]).sum(dim=2) + self.eps)
+        conserved_sink = torch.einsum(
+            "nhld,nhd->nhl",
+            queries + self.eps,
+            (keys * source_outgoing[:, :, :, None]).sum(dim=2) + self.eps,
+        )
+        conserved_source = torch.einsum(
+            "nhld,nhd->nhl",
+            keys + self.eps,
+            (queries * sink_incoming[:, :, :, None]).sum(dim=2) + self.eps,
+        )
         conserved_source = torch.clamp(conserved_source, min=-1.0, max=1.0)  # for stability
         # (3) Competition & Allocation
-        sink_allocation = torch.sigmoid(conserved_sink * (float(queries.shape[2]) / float(keys.shape[2])))
+        sink_allocation = torch.sigmoid(
+            conserved_sink * (float(queries.shape[2]) / float(keys.shape[2]))
+        )
         source_competition = torch.softmax(conserved_source, dim=-1) * float(keys.shape[2])
         # (4) dot product
-        x = (self.dot_product(queries * sink_incoming[:, :, :, None],  # for value normalization
-                              keys,
-                              values * source_competition[:, :, :, None])  # competition
-             * sink_allocation[:, :, :, None]).transpose(1, 2)  # allocation
+        x = (
+            self.dot_product(
+                queries * sink_incoming[:, :, :, None],  # for value normalization
+                keys,
+                values * source_competition[:, :, :, None],
+            )  # competition
+            * sink_allocation[:, :, :, None]
+        ).transpose(
+            1, 2
+        )  # allocation
         ## (5) Final projection
         x = x.reshape(B, L, -1)
         x = self.out_projection(x)
@@ -78,7 +106,11 @@ class Flow_Attention(nn.Module):
 
 
 def _apply_op(
-        img: Tensor, op_name: str, magnitude: float, interpolation: InterpolationMode, fill: Optional[List[float]]
+    img: Tensor,
+    op_name: str,
+    magnitude: float,
+    interpolation: InterpolationMode,
+    fill: Optional[List[float]],
 ):
     if op_name == "ShearX":
         # magnitude should be arctan(magnitude)
@@ -158,14 +190,16 @@ def _apply_op(
 
 
 class LearningAutoAugment(transforms.AutoAugment):
-    def __init__(self,
-                 policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
-                 interpolation: InterpolationMode = InterpolationMode.NEAREST,
-                 fill: Optional[List[float]] = None,
-                 p=0.25,
-                 C=3,
-                 H=224,
-                 W=224):
+    def __init__(
+        self,
+        policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
+        interpolation: InterpolationMode = InterpolationMode.NEAREST,
+        fill: Optional[List[float]] = None,
+        p=0.25,
+        C=3,
+        H=224,
+        W=224,
+    ):
         super(LearningAutoAugment, self).__init__(
             policy,
             interpolation,
@@ -187,18 +221,20 @@ class LearningAutoAugment(transforms.AutoAugment):
                 self.policies_set.append(copy.deepcopy(second_policies))
                 all_policies_set.add(second_policies[0])
         self.policies = self.policies_set
-        self.tran = transforms.Compose([transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]) \
-            if policy == AutoAugmentPolicy.CIFAR10 else transforms.Normalize([0.485, 0.456, 0.406],
-                                                                             std=[0.229, 0.224, 0.225])
+        self.tran = (
+            transforms.Compose(
+                [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
+            )
+            if policy == AutoAugmentPolicy.CIFAR10
+            else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        )
         # TODO: Learning Module
         self.fc = nn.Sequential()
-        self.fc.add_module('fc1',nn.Linear(C * H * W, 512))
-        self.fc.add_module('relu',nn.ReLU(inplace=True))
-        self.fc.add_module('fc2',nn.Linear(512, 1))
-        self.p=p
-        for param in list(
-              list(self.fc.parameters())
-        ):
+        self.fc.add_module("fc1", nn.Linear(C * H * W, 512))
+        self.fc.add_module("relu", nn.ReLU(inplace=True))
+        self.fc.add_module("fc2", nn.Linear(512, 1))
+        self.p = p
+        for param in list(list(self.fc.parameters())):
             param.requires_grad = True
 
     def forward(self, img: Tensor, estimation=False) -> Tensor:
@@ -206,18 +242,24 @@ class LearningAutoAugment(transforms.AutoAugment):
         Tensor -> Tensor (to translate)
         """
         assert isinstance(img, Tensor), "The input must be Tensor!"
-        assert img.shape[1] == 1 or img.shape[1] == 3, "The channels for image input must be 1 and 3"
+        assert (
+            img.shape[1] == 1 or img.shape[1] == 3
+        ), "The channels for image input must be 1 and 3"
         if img.dtype != torch.uint8:
             if self.policy == AutoAugmentPolicy.CIFAR10:
                 img.mul_(torch.Tensor([0.2675, 0.2565, 0.2761])[None, :, None, None].cuda()).add_(
-                    torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda())
+                    torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda()
+                )
             else:
                 img.mul_(torch.Tensor([0.229, 0.224, 0.225])[None, :, None, None].cuda()).add_(
-                    torch.Tensor([0.485, 0.456, 0.406])[None, :, None, None].cuda())
+                    torch.Tensor([0.485, 0.456, 0.406])[None, :, None, None].cuda()
+                )
             img = img * 255
             torch.clip_(img, 0, 255)
             img = img.type(torch.uint8)
-        assert img.dtype == torch.uint8, "Only torch.uint8 image tensors are supported, but found torch.int64"
+        assert (
+            img.dtype == torch.uint8
+        ), "Only torch.uint8 image tensors are supported, but found torch.int64"
 
         fill = self.fill
         if isinstance(fill, (int, float)):
@@ -225,7 +267,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         elif fill is not None:
             fill = [float(f) for f in fill]
 
-        #randperm = torch.randperm(len(self.policies))
+        # randperm = torch.randperm(len(self.policies))
         randperm = torch.arange(len(self.policies))
         img_size = F.get_image_size(img)
         op_meta = self._augmentation_space(10, img_size)
@@ -238,13 +280,17 @@ class LearningAutoAugment(transforms.AutoAugment):
             sign = torch.randint(2, (1,))
             policy = self.policies[randindex]
             (op_name, p, magnitude_id) = policy
-            p=self.p
-            if (prob <= p):
+            p = self.p
+            if prob <= p:
                 magnitudes, signed = op_meta[op_name]
-                magnitude = float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                magnitude = (
+                    float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                )
                 if signed and sign:
                     magnitude *= -1.0
-                img = _apply_op(img, op_name, magnitude, interpolation=self.interpolation, fill=fill)
+                img = _apply_op(
+                    img, op_name, magnitude, interpolation=self.interpolation, fill=fill
+                )
             results.append(self.tran(img / 255))
         results = torch.stack(results, 0)  # P,B,C,H,W
         P, B, C, H, W = results.shape
@@ -253,14 +299,21 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
 
-        attention_vector = torch.clamp_max(torch.relu(self.fc(results[1:]))+1e-8 ,10)# P,B,1
+        attention_vector = torch.clamp_max(torch.relu(self.fc(results[1:])) + 1e-8, 10)  # P,B,1
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
-        attention_vector = attention_vector/(attention_vector.sum(0))*attention_vector.shape[0]
-        x0=attention_vector[0] # 1,B,1
-        different_vector = attention_vector - torch.cat([attention_vector[1:], attention_vector[0].unsqueeze(0)], 0)
-        different_vector[-1] = attention_vector[-1]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
-        result = ((different_vector * results[1:]).sum(0) +(1 - x0) * results[0].unsqueeze(0) ).view(B, C, H, W)
+        attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
+        x0 = attention_vector[0]  # 1,B,1
+        different_vector = attention_vector - torch.cat(
+            [attention_vector[1:], attention_vector[0].unsqueeze(0)], 0
+        )
+        different_vector[-1] = attention_vector[
+            -1
+        ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
+        result = (
+            (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
+        ).view(B, C, H, W)
         return result
+
 
 #
 # model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()
