@@ -348,18 +348,10 @@ class LearnDiversifyEnv(object):
             teacher_embedding[b:],
         )
 
-        # TODO: 2. Consup loss (XXX)
-        # teacher_embedding_augmented = F.normalize(teacher_embedding[:b]).unsqueeze(1)
-        # teacher_embedding_original = F.normalize(teacher_embedding[b:]).unsqueeze(1)
-        # con_sup_loss = self.ConLoss(
-        #     torch.cat([teacher_embedding_original, teacher_embedding_augmented], dim=1), target.argmax(1)
-        # )
-        con_sup_loss = torch.Tensor([0.0]).cuda()
-
         # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
         student_logits = student_logits.float()
         teacher_logits = teacher_logits.float()
-        # fake_mask = ~real_mask # TODO: 仅仅只有二分之一，因此需要扩张
+        # TODO: 仅仅只有二分之一，因此需要扩张
         aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
         t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
         distance1 = (
@@ -371,13 +363,12 @@ class LearnDiversifyEnv(object):
             * (self.yaml["criticion"]["temperature"] ** 2)
         )
         distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
-        task_loss = distance2 + distance1
+        task_loss = distance2 * 0.1 + distance1 * 0.8 # left 0.8 right `.1
 
         # TODO: 4.to Combine all Loss in stage two
         loss_2 = (
-            self.weights[2] * con_sup_loss
-            + self.weights[3] * club_loss
-            + self.weights[4] * task_loss
+            + self.weights[2] * club_loss
+            + self.weights[3] * task_loss
         )
 
         # TODO: update params
@@ -397,7 +388,6 @@ class LearnDiversifyEnv(object):
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
             likeli_loss.cpu().item(),
-            con_sup_loss.cpu().item(),
             club_loss.cpu().item(),
             task_loss.cpu().item(),
         )
@@ -428,7 +418,6 @@ class LearnDiversifyEnv(object):
                 top1,
                 vanilla_kd_loss,
                 likeli_loss,
-                con_sup_loss,
                 club_loss,
                 task_loss,
             ) = self.run_one_train_batch_size(batch_idx, input, target)
@@ -437,7 +426,6 @@ class LearnDiversifyEnv(object):
                     "top1": top1,
                     "vanilla_kd_loss": vanilla_kd_loss,
                     "likeli_loss": likeli_loss,
-                    "con_sup_loss": con_sup_loss,
                     "club_loss": club_loss,
                     "task_loss": task_loss,
                 },

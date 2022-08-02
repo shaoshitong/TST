@@ -30,7 +30,6 @@ weights:
   - 1
   - 1
   - 1
-  - 1
 augnettype:
   SmallImageAugNet
 data_path:

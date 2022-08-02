@@ -267,7 +267,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         elif fill is not None:
             fill = [float(f) for f in fill]
 
-        # randperm = torch.randperm(len(self.policies))
         randperm = torch.arange(len(self.policies))
         img_size = F.get_image_size(img)
         op_meta = self._augmentation_space(10, img_size)
@@ -297,7 +296,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         results = results.view(P, B, -1)  # P,B,C*H*W
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
-        # # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
+        # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
 
         attention_vector = torch.clamp_max(torch.relu(self.fc(results[1:])) + 1e-8, 10)  # P,B,1
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
@@ -331,3 +330,4 @@ class LearningAutoAugment(transforms.AutoAugment):
 # output = output.type(torch.uint8).cpu()
 # now_output = transforms.ToPILImage()(output[0])
 # now_output.show()
+# A是使用randperm,B是使用AA的p

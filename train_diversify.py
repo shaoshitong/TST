@@ -78,6 +78,7 @@ if __name__ == "__main__":
         momentum=yaml_config["optimizer"]["momentum"]
         if "momentum" in yaml_config["optimizer"]
         else 0.9,
+        nesterov=True,
     )
     scheduler = getattr(torch.optim.lr_scheduler, yaml_config["scheduler"]["type"])(
         optimizer,
