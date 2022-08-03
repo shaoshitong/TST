@@ -146,6 +146,20 @@ class LearnDiversifyEnv(object):
             mode=yaml["augmentation_mode"],
         )
         self.augmented_ratio = yaml["augmented_ratio"]
+        self.set_ema_logits()
+
+    def set_ema_logits(self):
+        number_of_samples=len(self.dataloader.dataset)
+        num_classes=self.num_classes
+        self.ema_logits=torch.zeros(number_of_samples,num_classes).to(self.device).float()
+
+    def ema_update(self, indexs,logits):
+        """
+        indexs: [bs,]
+        logits: [bs,num_classes]
+        """
+        momentum=self.yaml['ema_momentum']
+        self.ema_logits[indexs].mul_(momentum).add_((1.0 - momentum) * logits.float())
 
     def reset_parameters(self, modules):
         for module in modules:
@@ -239,7 +253,7 @@ class LearnDiversifyEnv(object):
         self.begin_vtop1 = 0.0
         self.best_acc = 0.0
 
-    def run_one_train_batch_size(self, batch_idx, input, target):
+    def run_one_train_batch_size(self, batch_idx, indexs, input, target):
 
         # TODO: turn target (N,1) -> (N,C)
         input = input.float().cuda()
@@ -280,7 +294,10 @@ class LearnDiversifyEnv(object):
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
+
+        teacher_logits[b:]=self.ema_logits[indexs]*self.yaml['ema_ratio'] + teacher_logits[b:] *(1-self.yaml['ema_ratio'])
         vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
+        self.ema_update(indexs,student_logits[b:])
 
         # TODO: 2. Lilikehood Loss student and teacher
         augmented_studnet_mu = student_mu[:b]
@@ -294,7 +311,8 @@ class LearnDiversifyEnv(object):
         new_logvar = torch.cat([augmented_student_logvar, augmented_teacher_logvar])
         new_embedding = torch.cat([student_embedding[b:], teacher_embedding[b:]])
         likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
-
+        # if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
+        #     likeli_loss=torch.Tensor([0.]).cuda()
         # TODO: 3. Combine all Loss in stage one
         loss_1 = self.weights[0] * vanilla_kd_loss + self.weights[1] * likeli_loss
         self.optimizer.zero_grad()
@@ -372,6 +390,7 @@ class LearnDiversifyEnv(object):
         )
 
         # TODO: update params
+        # if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
         self.convertor_optimizer.zero_grad()
         self.scaler.scale(loss_2).backward()
         self.scaler.step(self.convertor_optimizer)
@@ -413,14 +432,14 @@ class LearnDiversifyEnv(object):
         self.p_mu.train()
         self.convertor.train()
         self.log.train(len_dataset=len(self.dataloader))
-        for batch_idx, (input, target) in enumerate(self.dataloader):
+        for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
                 vanilla_kd_loss,
                 likeli_loss,
                 club_loss,
                 task_loss,
-            ) = self.run_one_train_batch_size(batch_idx, input, target)
+            ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             self.wandb.log(
                 {
                     "top1": top1,

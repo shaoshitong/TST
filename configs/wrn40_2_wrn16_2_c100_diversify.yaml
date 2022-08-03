@@ -67,6 +67,11 @@ expand:
   300
 amp:
   True
+
+ema_momentum:
+  0.999
+ema_ratio:
+  0.2
 scheduler:
   type:
     MultiStepLR

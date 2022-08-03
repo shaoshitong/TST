@@ -38,6 +38,15 @@ def set_device():
         device = torch.device("cpu")
     return device
 
+def set_random_seed(number=0):
+    torch.manual_seed(number)
+    torch.cuda.manual_seed(number)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+    import numpy as np
+    import random
+    np.random.seed(number)
+    random.seed(number)
 
 def yaml_config_get(args):
     if args.config_file is None:
@@ -55,6 +64,7 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.fastest = True
+    set_random_seed(0)
     wandb.init(project="RLDCD", entity="seushanshan")
     if yaml_config["amp"]:
         scaler = torch.cuda.amp.GradScaler()
