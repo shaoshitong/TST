@@ -236,7 +236,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: Learning Module
         self.fc = nn.Sequential()
         self.fc.add_module("fc1", nn.Linear(len(self.policies) * C * H * W, 512))
-        self.fc.add_module("relu", nn.LeakyReLU(inplace=True))
+        self.fc.add_module("relu", nn.ReLU(inplace=True))
         self.fc.add_module("fc2", nn.Linear(512, len(self.policies)))
         self.p = p
         for param in list(list(self.fc.parameters())):
@@ -247,18 +247,17 @@ class LearningAutoAugment(transforms.AutoAugment):
     def set_buffer(self):
         number_of_samples = self.num_train_samples
         number_of_policies = len(self.policies)
-        self.buffer = torch.zeros(number_of_samples, number_of_policies).cuda().float() - 1
+        self.buffer = torch.ones(number_of_samples, number_of_policies).cuda().float()
 
     def buffer_update(self, indexs, weight, epoch):
         """
         indexs: [bs,]
         logits: [bs,num_classes]
         """
-        momentum = epoch / (epoch + 1)
-        weight = weight.clone().detach()
-        self.buffer[indexs] = torch.where(self.buffer[indexs] < 0, weight.float(),
-                                          self.buffer[indexs].mul_(momentum).
-                                          add_((1.0 - momentum) * weight.float()))
+        # momentum = epoch / (epoch + 1)
+        momentum = 0.9
+
+        self.buffer[indexs]=self.buffer[indexs].mul_(momentum).add_((1.0 - momentum) * weight.clone().detach().float())
 
     def forward(self, img: Tensor, indexs, epoch):
         """
@@ -323,7 +322,7 @@ class LearningAutoAugment(transforms.AutoAugment):
 
         attention_vector = \
             einops.rearrange(
-                torch.clamp_min(torch.relu(self.fc(einops.rearrange(results[1:], 'p b c -> b (p c)'))), 1e-8),
+                torch.clamp(torch.relu(self.fc(einops.rearrange(results[1:], 'p b c -> b (p c)'))), 1e-8, 10),
                 'b c -> c b')[..., None]
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
@@ -331,9 +330,12 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 解决数值不稳定的问题
         self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
         use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
-        attention_vector = use_attention_vector.detach() + attention_vector - attention_vector.detach()
+        if epoch % 2 == 0:
+            attention_vector = use_attention_vector.detach()
+        else:
+            attention_vector = attention_vector
         # TODO: End
-        if random.random() > 0.999:
+        if (indexs == 0).sum().item() > 0:
             print(self.buffer[0])
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(
