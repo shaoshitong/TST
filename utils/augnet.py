@@ -166,6 +166,6 @@ class SmallImageAugNet(nn.Module):
             if yaml["augmentation_policy"] == "cifar10"
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
-    def forward(self, x, indexs, stable=False):
-        x = self.learningautoaugment(x, indexs, stable)
+    def forward(self, x, indexs, epoch):
+        x = self.learningautoaugment(x, indexs, epoch)
         return x

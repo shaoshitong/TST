@@ -82,7 +82,7 @@ class LearnDiversifyEnv(object):
             else AugNet(img_size=yaml["img_size"],num_train_samples=len(self.dataloader.dataset), yaml=yaml).cpu()
         )
         self.convertor_optimizer = torch.optim.SGD(
-            self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9
+            self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9,nesterov=True,
         )
         self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
             self.convertor_optimizer,
@@ -257,9 +257,9 @@ class LearnDiversifyEnv(object):
                 temp[rand_choose], target_temp[rand_choose]
             )
         if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
-            inputs_max = self.convertor(temp,indexs)
+            inputs_max = self.convertor(temp,indexs,2*self.epoch)
         else:
-            inputs_max = self.convertor(temp,indexs)
+            inputs_max = self.convertor(temp,indexs,2*self.epoch)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
         b, c, h, w = inputs_max.shape
@@ -316,9 +316,9 @@ class LearnDiversifyEnv(object):
             )
 
         if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
-            inputs_max = self.convertor(temp,indexs)
+            inputs_max = self.convertor(temp,indexs,2*self.epoch+1)
         else:
-            inputs_max= self.convertor(temp,indexs)
+            inputs_max= self.convertor(temp,indexs,2*self.epoch+1)
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
         b, c, h, w = inputs_max.shape
@@ -482,6 +482,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step()
         elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
             self.convertor_scheduler.step(self.epoch)
+
     def training_in_all_epoch(self):
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()
