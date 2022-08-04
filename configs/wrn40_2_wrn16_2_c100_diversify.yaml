@@ -71,12 +71,14 @@ amp:
 ema_momentum:
   0.999
 ema_ratio:
-  0.2
+  0
 scheduler:
   type:
     MultiStepLR
   milestones:
-    [150,180,210]
+    - 150
+    - 180
+    - 210
   gamma:
     0.1
 criticion:

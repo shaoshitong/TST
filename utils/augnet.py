@@ -139,7 +139,7 @@ class BigImageAugNet(nn.Module):
 
 
 class SmallImageAugNet(nn.Module):
-    def __init__(self, img_size=224, yaml=None):
+    def __init__(self, img_size=224,num_train_samples=50000, yaml=None):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
         self.alpha = 1
@@ -149,6 +149,7 @@ class SmallImageAugNet(nn.Module):
             H=yaml["LAA"]["H"],
             W=yaml["LAA"]["W"],
             p=yaml["LAA"]["p"],
+            num_train_samples=num_train_samples
         )
         print(f"alpha is {self.alpha}")
         self.noise_lv = nn.Parameter(torch.zeros(1))
@@ -165,6 +166,6 @@ class SmallImageAugNet(nn.Module):
             if yaml["augmentation_policy"] == "cifar10"
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
-    def forward(self, x, estimation=False):
-        x = self.learningautoaugment(x, estimation)
+    def forward(self, x, indexs, stable=False):
+        x = self.learningautoaugment(x, indexs, stable)
         return x

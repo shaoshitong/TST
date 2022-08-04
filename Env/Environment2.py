@@ -77,9 +77,9 @@ class LearnDiversifyEnv(object):
             BigImageAugNet if not yaml["augnettype"] == "SmallImageAugNet" else SmallImageAugNet
         )
         self.convertor = (
-            AugNet(img_size=yaml["img_size"], yaml=yaml).cuda()
+            AugNet(img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml).cuda()
             if torch.cuda.is_available()
-            else AugNet(img_size=yaml["img_size"], yaml=yaml).cpu()
+            else AugNet(img_size=yaml["img_size"],num_train_samples=len(self.dataloader.dataset), yaml=yaml).cpu()
         )
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9
@@ -146,20 +146,7 @@ class LearnDiversifyEnv(object):
             mode=yaml["augmentation_mode"],
         )
         self.augmented_ratio = yaml["augmented_ratio"]
-        self.set_ema_logits()
 
-    def set_ema_logits(self):
-        number_of_samples=len(self.dataloader.dataset)
-        num_classes=self.num_classes
-        self.ema_logits=torch.zeros(number_of_samples,num_classes).to(self.device).float()
-
-    def ema_update(self, indexs,logits):
-        """
-        indexs: [bs,]
-        logits: [bs,num_classes]
-        """
-        momentum=self.yaml['ema_momentum']
-        self.ema_logits[indexs].mul_(momentum).add_((1.0 - momentum) * logits.float())
 
     def reset_parameters(self, modules):
         for module in modules:
@@ -269,14 +256,15 @@ class LearnDiversifyEnv(object):
             temp[rand_choose], target_temp[rand_choose] = self.augmentation(
                 temp[rand_choose], target_temp[rand_choose]
             )
-        inputs_max = self.convertor(temp)
+        if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
+            inputs_max = self.convertor(temp,indexs)
+        else:
+            inputs_max = self.convertor(temp,indexs)
         # inputs_max = inputs_max * 0.6 + input * 0.4
         # inputs_max=temp
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
-        if self.epoch >= self.yaml["warmup_epoch"]:
-            adjust_lr(self.optimizer, self.epoch, self.yaml, batch_idx, len(self.dataloader))
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
             with torch.no_grad():
@@ -294,10 +282,7 @@ class LearnDiversifyEnv(object):
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
-
-        teacher_logits[b:]=self.ema_logits[indexs]*self.yaml['ema_ratio'] + teacher_logits[b:] *(1-self.yaml['ema_ratio'])
         vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
-        self.ema_update(indexs,student_logits[b:])
 
         # TODO: 2. Lilikehood Loss student and teacher
         augmented_studnet_mu = student_mu[:b]
@@ -311,8 +296,6 @@ class LearnDiversifyEnv(object):
         new_logvar = torch.cat([augmented_student_logvar, augmented_teacher_logvar])
         new_embedding = torch.cat([student_embedding[b:], teacher_embedding[b:]])
         likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
-        # if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
-        #     likeli_loss=torch.Tensor([0.]).cuda()
         # TODO: 3. Combine all Loss in stage one
         loss_1 = self.weights[0] * vanilla_kd_loss + self.weights[1] * likeli_loss
         self.optimizer.zero_grad()
@@ -331,9 +314,11 @@ class LearnDiversifyEnv(object):
             temp[rand_choose], target_temp[rand_choose] = self.augmentation(
                 temp[rand_choose], target_temp[rand_choose]
             )
-        inputs_max = self.convertor(temp, estimation=True)
-        # inputs_max = inputs_max * 0.6 + input * 0.4
-        # inputs_max=temp
+
+        if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
+            inputs_max = self.convertor(temp,indexs)
+        else:
+            inputs_max= self.convertor(temp,indexs)
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
         b, c, h, w = inputs_max.shape
@@ -381,7 +366,7 @@ class LearnDiversifyEnv(object):
             * (self.yaml["criticion"]["temperature"] ** 2)
         )
         distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
-        task_loss = distance2 * 0.1 + distance1 * 0.8 # left 0.8 right `.1
+        task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
 
         # TODO: 4.to Combine all Loss in stage two
         loss_2 = (
@@ -390,7 +375,6 @@ class LearnDiversifyEnv(object):
         )
 
         # TODO: update params
-        # if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
         self.convertor_optimizer.zero_grad()
         self.scaler.scale(loss_2).backward()
         self.scaler.step(self.convertor_optimizer)
@@ -400,8 +384,9 @@ class LearnDiversifyEnv(object):
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
         loss = loss_1 + loss_2
         lr = (
-            self.scheduler.get_lr()[0] if hasattr(self.scheduler, "get_lr") else self.scheduler.lr()
+            self.scheduler.get_last_lr() if hasattr(self.scheduler, "get_lr") else self.scheduler.lr()
         )
+        lr=lr[0]
         self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return (
             top1.cpu().item(),
@@ -424,8 +409,6 @@ class LearnDiversifyEnv(object):
 
     def run_one_train_epoch(self):
         """============================train=============================="""
-        if self.epoch >= self.yaml["warmup_epoch"]:
-            adjust_lr(self.optimizer, self.epoch, self.yaml)
         start_time = time.time()
         self.student_model.train()
         self.p_logvar.train()
@@ -495,17 +478,15 @@ class LearnDiversifyEnv(object):
             self.scheduler.step()
         elif isinstance(self.scheduler, timm.scheduler.scheduler.Scheduler):
             self.scheduler.step(self.epoch)
-
         if isinstance(self.convertor_scheduler, torch.optim.lr_scheduler.MultiStepLR):
             self.convertor_scheduler.step()
         elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
             self.convertor_scheduler.step(self.epoch)
-
     def training_in_all_epoch(self):
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()
-            self.scheduler_step()
             vtop1 = self.run_one_val_epoch()
+            self.scheduler_step()
             self.wandb.log(
                 {"train_loss": tloss, "train_top1": ttop1, "val_top1": vtop1}, step=self.epoch
             )
