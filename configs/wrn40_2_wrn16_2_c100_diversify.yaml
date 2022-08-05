@@ -88,3 +88,19 @@ criticion:
     4
 augmented_ratio:
   0
+
+dfd:
+  patch_size:
+    4
+  feature_size:
+    - 32
+    - 16
+    - 8
+  teacher_channels:
+    - 32
+    - 64
+    - 128
+  student_channels:
+    - 32
+    - 64
+    - 128

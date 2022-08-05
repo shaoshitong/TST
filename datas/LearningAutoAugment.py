@@ -322,8 +322,8 @@ class LearningAutoAugment(transforms.AutoAugment):
 
         attention_vector = \
             einops.rearrange(
-                torch.clamp(torch.relu(self.fc(einops.rearrange(results[1:], 'p b c -> b (p c)'))), 1e-8, 10),
-                'b c -> c b')[..., None]
+                torch.sigmoid(self.fc(einops.rearrange(results[1:], 'p b c -> b (p c)'))),
+                'b c -> c b')[..., None] + 1
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
 

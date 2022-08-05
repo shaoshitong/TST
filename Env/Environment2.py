@@ -16,7 +16,7 @@ from helpers.log import Log
 from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
-
+from utils.dynamic_feature_distillation import DynamicFeatureDistillation
 
 def log_backward(module, grad_inputs, grad_outputs):
     print("=========")
@@ -146,6 +146,15 @@ class LearnDiversifyEnv(object):
             mode=yaml["augmentation_mode"],
         )
         self.augmented_ratio = yaml["augmented_ratio"]
+
+        # TODO: DFD
+        self.dfd=DynamicFeatureDistillation(
+            features_size=yaml['dfd']['feature_size'],
+            teacher_channels=yaml['dfd']['teacher_channels'],
+            student_channels=yaml['dfd']['student_channels'],
+            patch_size=yaml['dfd']['patch_size'],
+        ).to(self.device)
+        self.optimizer.add_param_group({"params": self.dfd.parameters()})
 
 
     def reset_parameters(self, modules):
