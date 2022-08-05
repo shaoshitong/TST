@@ -161,6 +161,7 @@ class LearnDiversifyEnv(object):
             teacher_channels=yaml["dfd"]["teacher_channels"],
             student_channels=yaml["dfd"]["student_channels"],
             patch_size=yaml["dfd"]["patch_size"],
+            distill_mode=yaml["dfd"]["distill_mode"],
         ).to(self.device)
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
 

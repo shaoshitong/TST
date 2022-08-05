@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -359,6 +361,7 @@ class DynamicFeatureDistillation(nn.Module):
         student_channels: tuple,
         patch_size=4,
         swinblocknumber=1,
+        distill_mode="all",
     ):
         """
         This dynamic knowledge distillation requires that
@@ -374,11 +377,24 @@ class DynamicFeatureDistillation(nn.Module):
         self.student_channels = student_channels
         self.swinblocknumber = swinblocknumber
         self.patch_size = patch_size
+        assert distill_mode in ["all", "one", "last_two"]
+        self.distill_mode = distill_mode
 
+        if self.distill_mode == "one":
+            distill_number = -1
+        elif self.distill_mode == "last_two":
+            distill_number = -2
+        else:
+            distill_number = 0
+        self.distill_number = distill_number
         # TODO: build first embedding conv layer
 
         self.teacher_first_conv_embeddings = nn.ModuleList([])
-        for size, t_channel, s_channel in zip(features_size, teacher_channels, student_channels):
+        for size, t_channel, s_channel in zip(
+            features_size[distill_number:],
+            teacher_channels[distill_number:],
+            student_channels[distill_number:],
+        ):
             conv_layer = nn.Conv2d(
                 in_channels=t_channel,
                 out_channels=s_channel * (patch_size ** 2),
@@ -388,7 +404,11 @@ class DynamicFeatureDistillation(nn.Module):
             )
             self.teacher_first_conv_embeddings.append(conv_layer)
         self.student_first_conv_embeddings = nn.ModuleList([])
-        for size, s_channel, s_channel in zip(features_size, student_channels, student_channels):
+        for size, s_channel, s_channel in zip(
+            features_size[distill_number:],
+            student_channels[distill_number:],
+            student_channels[distill_number:],
+        ):
             conv_layer = nn.Conv2d(
                 in_channels=s_channel,
                 out_channels=s_channel * (patch_size ** 2),
@@ -401,7 +421,9 @@ class DynamicFeatureDistillation(nn.Module):
         # TODO: apply ViT to embedding mix informations
 
         self.vit_student_embeddings = nn.ModuleList([])
-        for size, s_channel in zip(features_size, student_channels):
+        for size, s_channel in zip(
+            features_size[distill_number:], student_channels[distill_number:]
+        ):
             vit_embedding = nn.Sequential(*[])
             for i in range(self.swinblocknumber):
                 vit_embedding.add_module(
@@ -418,7 +440,9 @@ class DynamicFeatureDistillation(nn.Module):
             self.vit_student_embeddings.append(vit_embedding)
 
         self.vit_teacher_embeddings = nn.ModuleList([])
-        for size, s_channel in zip(features_size, student_channels):
+        for size, s_channel in zip(
+            features_size[distill_number:], student_channels[distill_number:]
+        ):
             vit_embedding = nn.Sequential(*[])
             for i in range(self.swinblocknumber):
                 vit_embedding.add_module(
@@ -493,7 +517,16 @@ class DynamicFeatureDistillation(nn.Module):
 
         return result
 
+    def ratio_update(self, ratio):
+        if not hasattr(self, "ratios"):
+            self.ratios = [0.5 for i in range(len(self.features_size[self.distill_number :]))]
+        for i, r in enumerate(ratio):
+            self.ratios[i] = 0.9 * self.ratios[i] + 0.1 * r
+
     def forward(self, teacher_feature_maps, student_feature_maps) -> torch.Tensor:
+        teacher_feature_maps = teacher_feature_maps[self.distill_number :]
+        student_feature_maps = student_feature_maps[self.distill_number :]
+
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
 
@@ -505,7 +538,10 @@ class DynamicFeatureDistillation(nn.Module):
         )
 
         ratios = self.compute_ratio(teacher_feature_maps, student_feature_maps)
-
+        self.ratio_update(ratios)
+        ratios = self.ratios
+        if random.random() > 0.99:
+            print(ratios)
         mix_student_feature_maps = []
         for ratio, teacher_feature_map, student_feature_map in zip(
             ratios, teacher_feature_maps, student_feature_maps

@@ -106,3 +106,5 @@ dfd:
     - 32
     - 64
     - 128
+  distill_mode:
+    one

@@ -34,6 +34,8 @@ def linear_HSIC(X, Y):
 
 
 def linear_CKA(X, Y):
+    X = X / X.norm(p=2, dim=1, keepdim=True)
+    Y = Y / Y.norm(p=2, dim=1, keepdim=True)
     hsic = linear_HSIC(X, Y)
     var1 = torch.sqrt(linear_HSIC(X, X))
     var2 = torch.sqrt(linear_HSIC(Y, Y))
@@ -41,6 +43,8 @@ def linear_CKA(X, Y):
 
 
 def kernel_CKA(X, Y, sigma=None):
+    X = X / X.norm(p=2, dim=1, keepdim=True)
+    Y = Y / Y.norm(p=2, dim=1, keepdim=True)
     hsic = kernel_HSIC(X, Y, sigma)
     var1 = torch.sqrt(kernel_HSIC(X, X, sigma))
     var2 = torch.sqrt(kernel_HSIC(Y, Y, sigma))
