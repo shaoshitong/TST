@@ -518,8 +518,6 @@ class DynamicFeatureDistillation(nn.Module):
         student_feature_maps = self.all_feature_map_vit_forward(
             mix_student_feature_maps, self.vit_student_embeddings
         )
-        for i in teacher_feature_maps:
-            print(i.shape)
         teacher_feature_maps = self.all_feature_map_vit_forward(
             teacher_feature_maps, self.vit_teacher_embeddings
         )

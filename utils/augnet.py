@@ -2,8 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.transforms.autoaugment import AutoAugmentPolicy
 from torchvision import transforms
+from torchvision.transforms.autoaugment import AutoAugmentPolicy
+
 from datas.LearningAutoAugment import LearningAutoAugment
 
 
@@ -57,15 +58,15 @@ class BigImageAugNet(nn.Module):
         self.color = nn.Conv2d(3, 3, 1).cuda()
 
         for param in list(
-                list(self.color.parameters())
-                + list(self.spatial.parameters())
-                + list(self.spatial_up.parameters())
-                + list(self.spatial2.parameters())
-                + list(self.spatial_up2.parameters())
-                + list(self.spatial3.parameters())
-                + list(self.spatial_up3.parameters())
-                + list(self.spatial4.parameters())
-                + list(self.spatial_up4.parameters())
+            list(self.color.parameters())
+            + list(self.spatial.parameters())
+            + list(self.spatial_up.parameters())
+            + list(self.spatial2.parameters())
+            + list(self.spatial_up2.parameters())
+            + list(self.spatial3.parameters())
+            + list(self.spatial_up3.parameters())
+            + list(self.spatial4.parameters())
+            + list(self.spatial_up4.parameters())
         ):
             param.requires_grad = False
 
@@ -108,12 +109,12 @@ class BigImageAugNet(nn.Module):
             x_s4 = torch.tanh(spatial_up4(x_s4down))
 
             output = (
-                             weight[0] * x_c
-                             + weight[1] * x_s
-                             + weight[2] * x_s2
-                             + weight[3] * x_s3
-                             + weight[4] * x_s4
-                     ) / weight.sum()
+                weight[0] * x_c
+                + weight[1] * x_s
+                + weight[2] * x_s2
+                + weight[3] * x_s3
+                + weight[4] * x_s4
+            ) / weight.sum()
         else:
             x = x + torch.randn_like(x) * self.noise_lv * 0.01
             x_c = torch.tanh(self.color(x))
@@ -139,7 +140,7 @@ class BigImageAugNet(nn.Module):
 
 
 class SmallImageAugNet(nn.Module):
-    def __init__(self, img_size=224,num_train_samples=50000, yaml=None):
+    def __init__(self, img_size=224, num_train_samples=50000, yaml=None):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
         self.alpha = 1
@@ -149,7 +150,7 @@ class SmallImageAugNet(nn.Module):
             H=yaml["LAA"]["H"],
             W=yaml["LAA"]["W"],
             p=yaml["LAA"]["p"],
-            num_train_samples=num_train_samples
+            num_train_samples=num_train_samples,
         )
         print(f"alpha is {self.alpha}")
         self.noise_lv = nn.Parameter(torch.zeros(1))
@@ -166,6 +167,7 @@ class SmallImageAugNet(nn.Module):
             if yaml["augmentation_policy"] == "cifar10"
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
+
     def forward(self, x, indexs, epoch):
         x = self.learningautoaugment(x, indexs, epoch)
         return x

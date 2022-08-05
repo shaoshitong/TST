@@ -7,7 +7,9 @@ from PIL import Image, ImageEnhance, ImageOps
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
 from torchvision.transforms import *
+
 from .IndexDataset import IndexDataset
+
 
 class BaseDatasetWrapper(Dataset):
     def __init__(self, org_dataset):
@@ -200,6 +202,7 @@ class PolicyDatasetC100(BaseDatasetWrapper):
         )
         return sample, target
 
+
 def DataLoader_C100(data_path, val_ratio, num_worker, train_batch_size=64, test_batch_size=64):
     trainset = torchvision.datasets.CIFAR100(
         root=data_path,
@@ -261,20 +264,20 @@ def DataLoader_C100(data_path, val_ratio, num_worker, train_batch_size=64, test_
 def Original_DataLoader_C100(data_path, num_worker, train_batch_size=64, test_batch_size=64):
     trainset = IndexDataset(
         torchvision.datasets.CIFAR100(
-        root=data_path,
-        train=True,
-        download=True,
-        transform=transforms.Compose(
-            [
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761]),
-            ]
-        ),
+            root=data_path,
+            train=True,
+            download=True,
+            transform=transforms.Compose(
+                [
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761]),
+                ]
+            ),
+        )
     )
-    )
-    testset =  torchvision.datasets.CIFAR100(
+    testset = torchvision.datasets.CIFAR100(
         root=data_path,
         train=False,
         download=True,

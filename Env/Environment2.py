@@ -14,9 +14,10 @@ from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from utils.augnet import BigImageAugNet, SmallImageAugNet
+from utils.dynamic_feature_distillation import DynamicFeatureDistillation
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
-from utils.dynamic_feature_distillation import DynamicFeatureDistillation
+
 
 def log_backward(module, grad_inputs, grad_outputs):
     print("=========")
@@ -77,12 +78,19 @@ class LearnDiversifyEnv(object):
             BigImageAugNet if not yaml["augnettype"] == "SmallImageAugNet" else SmallImageAugNet
         )
         self.convertor = (
-            AugNet(img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml).cuda()
+            AugNet(
+                img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
+            ).cuda()
             if torch.cuda.is_available()
-            else AugNet(img_size=yaml["img_size"],num_train_samples=len(self.dataloader.dataset), yaml=yaml).cpu()
+            else AugNet(
+                img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
+            ).cpu()
         )
         self.convertor_optimizer = torch.optim.SGD(
-            self.convertor.parameters(), lr=yaml["sc_lr"], momentum=0.9,nesterov=True,
+            self.convertor.parameters(),
+            lr=yaml["sc_lr"],
+            momentum=0.9,
+            nesterov=True,
         )
         self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
             self.convertor_optimizer,
@@ -148,14 +156,13 @@ class LearnDiversifyEnv(object):
         self.augmented_ratio = yaml["augmented_ratio"]
 
         # TODO: DFD
-        self.dfd=DynamicFeatureDistillation(
-            features_size=yaml['dfd']['feature_size'],
-            teacher_channels=yaml['dfd']['teacher_channels'],
-            student_channels=yaml['dfd']['student_channels'],
-            patch_size=yaml['dfd']['patch_size'],
+        self.dfd = DynamicFeatureDistillation(
+            features_size=yaml["dfd"]["feature_size"],
+            teacher_channels=yaml["dfd"]["teacher_channels"],
+            student_channels=yaml["dfd"]["student_channels"],
+            patch_size=yaml["dfd"]["patch_size"],
         ).to(self.device)
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
-
 
     def reset_parameters(self, modules):
         for module in modules:
@@ -265,12 +272,11 @@ class LearnDiversifyEnv(object):
             temp[rand_choose], target_temp[rand_choose] = self.augmentation(
                 temp[rand_choose], target_temp[rand_choose]
             )
-        if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
-            inputs_max = self.convertor(temp,indexs,2*self.epoch)
+        if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
+            inputs_max = self.convertor(temp, indexs, 2 * self.epoch)
         else:
-            inputs_max = self.convertor(temp,indexs,2*self.epoch)
-        # inputs_max = inputs_max * 0.6 + input * 0.4
-        # inputs_max=temp
+            inputs_max = self.convertor(temp, indexs, 2 * self.epoch)
+
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
@@ -305,8 +311,22 @@ class LearnDiversifyEnv(object):
         new_logvar = torch.cat([augmented_student_logvar, augmented_teacher_logvar])
         new_embedding = torch.cat([student_embedding[b:], teacher_embedding[b:]])
         likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
+
+        # TODO: 3 DFD Loss
+        # for i in teacher_tuple:
+        #     print(i.shape)
+        # for i in student_tuple:
+        #     print(i.shape)
+        # exit(-1)
+        with torch.cuda.amp.autocast(enabled=True):
+            dfd_loss = self.dfd(teacher_tuple, student_tuple)
+
         # TODO: 3. Combine all Loss in stage one
-        loss_1 = self.weights[0] * vanilla_kd_loss + self.weights[1] * likeli_loss
+        loss_1 = (
+            self.weights[0] * vanilla_kd_loss
+            + self.weights[1] * likeli_loss
+            + self.weights[2] * dfd_loss
+        )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         self.scaler.step(self.optimizer)
@@ -324,10 +344,10 @@ class LearnDiversifyEnv(object):
                 temp[rand_choose], target_temp[rand_choose]
             )
 
-        if self.epoch<int(self.yaml['scheduler']['milestones'][0]):
-            inputs_max = self.convertor(temp,indexs,2*self.epoch+1)
+        if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
+            inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
         else:
-            inputs_max= self.convertor(temp,indexs,2*self.epoch+1)
+            inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
         b, c, h, w = inputs_max.shape
@@ -377,10 +397,15 @@ class LearnDiversifyEnv(object):
         distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
         task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
 
-        # TODO: 4.to Combine all Loss in stage two
+        # TODO: 4 negative dfd loss
+        with torch.cuda.amp.autocast(enabled=True):
+            ne_dfd_loss = -self.dfd(teacher_tuples, student_tuples) * 0.8
+
+        # TODO: 5.to Combine all Loss in stage two
         loss_2 = (
-            + self.weights[2] * club_loss
-            + self.weights[3] * task_loss
+            +self.weights[3] * ne_dfd_loss
+            + self.weights[4] * club_loss
+            + self.weights[5] * task_loss
         )
 
         # TODO: update params
@@ -393,13 +418,18 @@ class LearnDiversifyEnv(object):
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
         loss = loss_1 + loss_2
         lr = (
-            self.scheduler.get_last_lr() if hasattr(self.scheduler, "get_lr") else self.scheduler.lr()
+            self.scheduler.get_last_lr()
+            if hasattr(self.scheduler, "get_lr")
+            else self.scheduler.lr()
         )
-        lr=lr[0]
+        lr = lr[0]
+
         self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return (
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
+            dfd_loss.cpu().item(),
+            ne_dfd_loss.cpu().item(),
             likeli_loss.cpu().item(),
             club_loss.cpu().item(),
             task_loss.cpu().item(),
@@ -428,6 +458,8 @@ class LearnDiversifyEnv(object):
             (
                 top1,
                 vanilla_kd_loss,
+                dfd_loss,
+                ne_dfd_loss,
                 likeli_loss,
                 club_loss,
                 task_loss,
@@ -436,6 +468,8 @@ class LearnDiversifyEnv(object):
                 {
                     "top1": top1,
                     "vanilla_kd_loss": vanilla_kd_loss,
+                    "dfd_loss": dfd_loss,
+                    "ne_dfd_loss": ne_dfd_loss,
                     "likeli_loss": likeli_loss,
                     "club_loss": club_loss,
                     "task_loss": task_loss,

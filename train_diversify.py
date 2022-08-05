@@ -38,15 +38,19 @@ def set_device():
         device = torch.device("cpu")
     return device
 
+
 def set_random_seed(number=0):
     torch.manual_seed(number)
     torch.cuda.manual_seed(number)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
-    import numpy as np
     import random
+
+    import numpy as np
+
     np.random.seed(number)
     random.seed(number)
+
 
 def yaml_config_get(args):
     if args.config_file is None:
