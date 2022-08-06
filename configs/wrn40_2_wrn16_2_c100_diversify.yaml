@@ -28,8 +28,8 @@ sc_lr:
 weights:
   - 1
   - 1
-  - 0.25
-  - 0.25
+  - 0
+  - 0
   - 1
   - 1
 augnettype:
@@ -107,4 +107,6 @@ dfd:
     - 64
     - 128
   distill_mode:
-    one
+    all
+only_stage_one:
+  False

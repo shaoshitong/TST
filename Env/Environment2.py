@@ -165,6 +165,7 @@ class LearnDiversifyEnv(object):
         ).to(self.device)
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
 
+        self.only_satge_one = self.yaml['only_stage_one']
     def reset_parameters(self, modules):
         for module in modules:
             if isinstance(module, nn.Linear):
@@ -303,24 +304,25 @@ class LearnDiversifyEnv(object):
         # TODO: 2. Lilikehood Loss student and teacher
         augmented_studnet_mu = student_mu[:b]
         augmented_student_logvar = student_logvar[:b]
-        likeli_loss = -self.Loglikeli(
-            augmented_studnet_mu, augmented_student_logvar, student_embedding[b:]
-        )
-        augmented_teacher_mu = teacher_mu[:b]
-        augmented_teacher_logvar = teacher_logvar[:b]
-        new_mu = torch.cat([augmented_studnet_mu, augmented_teacher_mu])
-        new_logvar = torch.cat([augmented_student_logvar, augmented_teacher_logvar])
-        new_embedding = torch.cat([student_embedding[b:], teacher_embedding[b:]])
-        likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
+        if self.weights[1]==0:
+            likeli_loss = torch.Tensor([0.]).cuda()
+        else:
+            likeli_loss = -self.Loglikeli(
+                augmented_studnet_mu, augmented_student_logvar, student_embedding[b:]
+            )
+            augmented_teacher_mu = teacher_mu[:b]
+            augmented_teacher_logvar = teacher_logvar[:b]
+            new_mu = torch.cat([augmented_studnet_mu, augmented_teacher_mu])
+            new_logvar = torch.cat([augmented_student_logvar, augmented_teacher_logvar])
+            new_embedding = torch.cat([student_embedding[b:], teacher_embedding[b:]])
+            likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
 
         # TODO: 3 DFD Loss
-        # for i in teacher_tuple:
-        #     print(i.shape)
-        # for i in student_tuple:
-        #     print(i.shape)
-        # exit(-1)
-        with torch.cuda.amp.autocast(enabled=True):
-            dfd_loss = self.dfd(teacher_tuple, student_tuple)
+        if self.weights[2] == 0:
+            dfd_loss = torch.Tensor([0.]).cuda()
+        else:
+            with torch.cuda.amp.autocast(enabled=True):
+                dfd_loss = self.dfd(teacher_tuple, student_tuple)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -333,87 +335,100 @@ class LearnDiversifyEnv(object):
         self.scaler.step(self.optimizer)
         self.scaler.update()
         original_sample = input[0]
-        change_tensor_to_image(original_sample, "output", f"original{self.epoch}_sample")
         augment_sample = inputs_max[0]
-        change_tensor_to_image(augment_sample, "output", f"augment{self.epoch}_sample")
         # TODO: Second Stage
-        rand_choose = torch.randperm(input.shape[0])[: int(self.augmented_ratio * input.shape[0])]
-        temp = input.clone()
-        target_temp = target.clone()
-        if rand_choose.shape[0] > 0:
-            temp[rand_choose], target_temp[rand_choose] = self.augmentation(
-                temp[rand_choose], target_temp[rand_choose]
+
+        if not self.only_satge_one:
+            rand_choose = torch.randperm(input.shape[0])[: int(self.augmented_ratio * input.shape[0])]
+            temp = input.clone()
+            target_temp = target.clone()
+            if rand_choose.shape[0] > 0:
+                temp[rand_choose], target_temp[rand_choose] = self.augmentation(
+                    temp[rand_choose], target_temp[rand_choose]
+                )
+
+            if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
+                inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
+            else:
+                inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
+            data_aug = torch.cat([inputs_max, input])
+            labels = torch.cat([target_temp, target])
+            b, c, h, w = inputs_max.shape
+
+            with torch.cuda.amp.autocast(enabled=True):
+                student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
+                teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
+                student_lambda = student_tuples[-1]
+                teacher_lambda = teacher_tuples[-1]
+                student_avgpool = self.avgpool2d(student_lambda)
+                teacher_avgpool = self.avgpool2d(teacher_lambda)
+                student_logvar = self.p_logvar(student_avgpool)
+                student_mu = self.p_mu(student_avgpool)
+                teacher_logvar = self.p_logvar(teacher_avgpool)
+                teacher_mu = self.p_mu(teacher_avgpool)
+                student_embedding = self.reparametrize(student_mu, student_logvar)
+                teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
+
+            # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
+            augmented_student_logvar = student_logvar[:b]
+            augmented_student_mu = student_mu[:b]
+            augmented_teacher_logvar = teacher_logvar[:b]
+            augmented_teacher_mu = teacher_mu[:b]
+            club_loss = self.Club(
+                augmented_student_mu,
+                augmented_student_logvar,
+                student_embedding[b:],
+                augmented_teacher_mu,
+                augmented_teacher_logvar,
+                teacher_embedding[b:],
             )
 
-        if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-            inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
+            # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
+            student_logits = student_logits.float()
+            teacher_logits = teacher_logits.float()
+            # TODO: 仅仅只有二分之一，因此需要扩张
+            aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
+            t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
+            distance1 = (
+                -F.kl_div(
+                    (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
+                    (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
+                    reduction="batchmean",
+                )
+                * (self.yaml["criticion"]["temperature"] ** 2)
+            )
+            distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
+            task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
+
+            # TODO: 4 negative dfd loss
+
+            if self.weights[3] == 0:
+                ne_dfd_loss = torch.Tensor([0.]).cuda()
+            else:
+                with torch.cuda.amp.autocast(enabled=True):
+                    ne_dfd_loss = -self.dfd(teacher_tuples, student_tuples) * 0.8
+
+            # TODO: 5.to Combine all Loss in stage two
+            loss_2 = (
+                +self.weights[3] * ne_dfd_loss
+                + self.weights[4] * club_loss
+                + self.weights[5] * task_loss
+            )
+
+            # TODO: update params
+            self.convertor_optimizer.zero_grad()
+            self.scaler.scale(loss_2).backward()
+            self.scaler.step(self.convertor_optimizer)
+            self.scaler.update()
         else:
-            inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
-        data_aug = torch.cat([inputs_max, input])
-        labels = torch.cat([target_temp, target])
-        b, c, h, w = inputs_max.shape
-
-        with torch.cuda.amp.autocast(enabled=True):
-            student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
-            teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
-            student_lambda = student_tuples[-1]
-            teacher_lambda = teacher_tuples[-1]
-            student_avgpool = self.avgpool2d(student_lambda)
-            teacher_avgpool = self.avgpool2d(teacher_lambda)
-            student_logvar = self.p_logvar(student_avgpool)
-            student_mu = self.p_mu(student_avgpool)
-            teacher_logvar = self.p_logvar(teacher_avgpool)
-            teacher_mu = self.p_mu(teacher_avgpool)
-            student_embedding = self.reparametrize(student_mu, student_logvar)
-            teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
-
-        # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
-        augmented_student_logvar = student_logvar[:b]
-        augmented_student_mu = student_mu[:b]
-        augmented_teacher_logvar = teacher_logvar[:b]
-        augmented_teacher_mu = teacher_mu[:b]
-        club_loss = self.Club(
-            augmented_student_mu,
-            augmented_student_logvar,
-            student_embedding[b:],
-            augmented_teacher_mu,
-            augmented_teacher_logvar,
-            teacher_embedding[b:],
-        )
-
-        # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
-        student_logits = student_logits.float()
-        teacher_logits = teacher_logits.float()
-        # TODO: 仅仅只有二分之一，因此需要扩张
-        aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
-        t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
-        distance1 = (
-            -F.kl_div(
-                (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
-                (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
-                reduction="batchmean",
+            ne_dfd_loss =  torch.Tensor([0.]).cuda()
+            club_loss = torch.Tensor([0.]).cuda()
+            task_loss = torch.Tensor([0.]).cuda()
+            loss_2 = (
+                +self.weights[3] * ne_dfd_loss
+                + self.weights[4] * club_loss
+                + self.weights[5] * task_loss
             )
-            * (self.yaml["criticion"]["temperature"] ** 2)
-        )
-        distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
-        task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
-
-        # TODO: 4 negative dfd loss
-        with torch.cuda.amp.autocast(enabled=True):
-            ne_dfd_loss = -self.dfd(teacher_tuples, student_tuples) * 0.8
-
-        # TODO: 5.to Combine all Loss in stage two
-        loss_2 = (
-            +self.weights[3] * ne_dfd_loss
-            + self.weights[4] * club_loss
-            + self.weights[5] * task_loss
-        )
-
-        # TODO: update params
-        self.convertor_optimizer.zero_grad()
-        self.scaler.scale(loss_2).backward()
-        self.scaler.step(self.convertor_optimizer)
-        self.scaler.update()
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))

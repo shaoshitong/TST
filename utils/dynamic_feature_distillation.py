@@ -527,6 +527,11 @@ class DynamicFeatureDistillation(nn.Module):
         teacher_feature_maps = teacher_feature_maps[self.distill_number :]
         student_feature_maps = student_feature_maps[self.distill_number :]
 
+        # TODO: Only original sample
+        b=teacher_feature_maps[0].shape[0]//2
+        teacher_feature_maps = [ i[b:] for i in teacher_feature_maps]
+        student_feature_maps = [ i[b:] for i in student_feature_maps]
+
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
 
