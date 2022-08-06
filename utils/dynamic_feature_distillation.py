@@ -545,8 +545,6 @@ class DynamicFeatureDistillation(nn.Module):
         ratios = self.compute_ratio(teacher_feature_maps, student_feature_maps)
         self.ratio_update(ratios)
         ratios = self.ratios
-        if random.random() > 0.99:
-            print(ratios)
         mix_student_feature_maps = []
         for ratio, teacher_feature_map, student_feature_map in zip(
             ratios, teacher_feature_maps, student_feature_maps

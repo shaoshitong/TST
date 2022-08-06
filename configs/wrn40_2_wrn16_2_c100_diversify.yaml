@@ -110,3 +110,7 @@ dfd:
     all
 only_stage_one:
   False
+
+# LEFT, only LLA,
+# RIGHT, only DFD in original samples
+# RLGHT RIGHT, JDA
