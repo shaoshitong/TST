@@ -353,6 +353,17 @@ class SwinTransformerBlock(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
 
+class Classifier(nn.Module):
+    def __init__(self,dim,num_classes):
+        super(Classifier, self).__init__()
+        self.pool=nn.Sequential(
+            nn.AdaptiveAvgPool2d((1,1)),
+            nn.Flatten()
+        )
+        self.fc = nn.Linear(dim,num_classes)
+    def forward(self,x):
+        x = self.fc(self.pool(x))
+        return x
 class DynamicFeatureDistillation(nn.Module):
     def __init__(
             self,
@@ -362,6 +373,7 @@ class DynamicFeatureDistillation(nn.Module):
             patch_size=4,
             swinblocknumber=[4, 3, 2],
             distill_mode="all",
+            num_classes=100,
     ):
         """
         This dynamic knowledge distillation requires that
@@ -493,6 +505,21 @@ class DynamicFeatureDistillation(nn.Module):
         ):
             self.student_unembedding.append(nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False))
 
+        self.student_bns=nn.ModuleList([
+            nn.BatchNorm2d(s_channel) for s_channel in student_channels[distill_number:]
+        ])
+        self.teacher_bns=nn.ModuleList([
+            nn.BatchNorm2d(s_channel) for s_channel in student_channels[distill_number:]
+        ])
+
+
+        self.student_fcs=nn.ModuleList([
+            Classifier(s_channel,num_classes) for s_channel in student_channels[distill_number:]
+        ])
+        self.teacher_fcs=nn.ModuleList([
+            Classifier(s_channel,num_classes) for s_channel in student_channels[distill_number:]
+        ])
+
         # TODO: build flatten
 
         self.flatten = nn.Flatten()
@@ -558,14 +585,21 @@ class DynamicFeatureDistillation(nn.Module):
         for i, r in enumerate(ratio):
             self.ratios[i] = 0.9 * self.ratios[i] + 0.1 * r
 
+    def bn_forward(self, feature_maps, bn_embeddings):
+        result = []
+        for feature_map, bn_embedding in zip(feature_maps, bn_embeddings):
+            f = bn_embedding(feature_map)
+            result.append(f)
+        return result
+
     def forward(self, teacher_feature_maps, student_feature_maps) -> torch.Tensor:
         teacher_feature_maps = teacher_feature_maps[self.distill_number:]
         student_feature_maps = student_feature_maps[self.distill_number:]
 
         # TODO: Only original sample
-        b = teacher_feature_maps[0].shape[0] // 2
-        teacher_feature_maps = [i[b:] for i in teacher_feature_maps]
-        student_feature_maps = [i[b:] for i in student_feature_maps]
+        # b = teacher_feature_maps[0].shape[0] // 2
+        # teacher_feature_maps = [i[b:] for i in teacher_feature_maps]
+        # student_feature_maps = [i[b:] for i in student_feature_maps]
 
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
@@ -583,16 +617,13 @@ class DynamicFeatureDistillation(nn.Module):
         new_teacher_feature_maps = self.all_feature_map_vit_forward(
             new_teacher_feature_maps, self.vit_encoder2_embeddings
         )
-
-        # for i,j in zip(student_feature_maps,new_teacher_feature_maps):
-        #     print(i.norm(),j.norm())
+        student_feature_maps = self.bn_forward(student_feature_maps,self.student_bns)
+        teacher_feature_maps = self.bn_forward(teacher_feature_maps,self.teacher_bns)
 
         ratios = self.compute_ratio(new_teacher_feature_maps, student_feature_maps)
         self.ratio_update(ratios)
         ratios = self.ratios
 
-        if random.random()>0.99:
-            print(ratios)
         mix_student_feature_maps = []
         for ratio, new_teacher_feature_map, student_feature_map in zip(
                 ratios, new_teacher_feature_maps, student_feature_maps
@@ -616,7 +647,7 @@ class DynamicFeatureDistillation(nn.Module):
 
         return loss
 
-#
+
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),
 #                                      student_channels=(8, 16, 32)).cuda()

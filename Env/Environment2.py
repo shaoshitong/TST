@@ -337,6 +337,7 @@ class LearnDiversifyEnv(object):
         # self.hook.show()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
+        nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
         original_sample = input[0]
@@ -423,6 +424,7 @@ class LearnDiversifyEnv(object):
             # TODO: update params
             self.convertor_optimizer.zero_grad()
             self.scaler.scale(loss_2).backward()
+            nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
             self.scaler.step(self.convertor_optimizer)
             self.scaler.update()
         else:

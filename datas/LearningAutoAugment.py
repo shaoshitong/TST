@@ -226,22 +226,22 @@ class LearningAutoAugment(transforms.AutoAugment):
                 self.policies_set.append(copy.deepcopy(second_policies))
                 all_policies_set.add(second_policies[0])
         self.policies = list(self.policies_set)
-        self.policies = [
-            ("AutoContrast", p, None),
-            ("Contrast", p, 3),
-            ("Posterize", p, 0),
-            ("Solarize", p, 4),
-            ("TranslateY", p, 8),
-            ("ShearX", p, 5),
-            ("Brightness", p, 3),
-            ("ShearY", p, 0),
-            ("TranslateX", p, 1),
-            ("Sharpness", p, 5),
-            ("Invert", p, None),
-            ("Color", p, 4),
-            ("Equalize", p, None),
-            ("Rotate", p, 3),
-        ] if policy == AutoAugmentPolicy.CIFAR10 else self.policies
+        # self.policies = [
+        #     ("AutoContrast", p, None),
+        #     ("Contrast", p, 3),
+        #     ("Posterize", p, 0),
+        #     ("Solarize", p, 4),
+        #     ("TranslateY", p, 8),
+        #     ("ShearX", p, 5),
+        #     ("Brightness", p, 3),
+        #     ("ShearY", p, 0),
+        #     ("TranslateX", p, 1),
+        #     ("Sharpness", p, 5),
+        #     ("Invert", p, None),
+        #     ("Color", p, 4),
+        #     ("Equalize", p, None),
+        #     ("Rotate", p, 3),
+        # ] if policy == AutoAugmentPolicy.CIFAR10 else self.policies
         self.policies.append(('CutMix', None, None))
         print(self.policies)
         self.tran = (
