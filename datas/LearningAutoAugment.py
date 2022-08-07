@@ -365,7 +365,6 @@ class LearningAutoAugment(transforms.AutoAugment):
             attention_vector = use_attention_vector.detach()
         else:
             attention_vector = attention_vector
-        attention_vector = torch.ones_like(attention_vector, device=attention_vector.device)
         # TODO: End
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(

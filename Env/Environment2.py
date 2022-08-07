@@ -162,7 +162,11 @@ class LearnDiversifyEnv(object):
             student_channels=yaml["dfd"]["student_channels"],
             patch_size=yaml["dfd"]["patch_size"],
             distill_mode=yaml["dfd"]["distill_mode"],
+            swinblocknumber=yaml["dfd"]["swinblocknumber"]
         ).to(self.device)
+
+        from utils.plthook import PltAboutHook
+        # self.hook=PltAboutHook(self.dfd,mode='one')
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
 
         self.only_satge_one = self.yaml['only_stage_one']
@@ -330,6 +334,7 @@ class LearnDiversifyEnv(object):
             + self.weights[1] * likeli_loss
             + self.weights[2] * dfd_loss
         )
+        # self.hook.show()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         self.scaler.step(self.optimizer)
