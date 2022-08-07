@@ -364,6 +364,34 @@ class Classifier(nn.Module):
     def forward(self,x):
         x = self.fc(self.pool(x))
         return x
+
+def _is_contiguous(tensor: torch.Tensor) -> bool:
+    # jit is oh so lovely :/
+    # if torch.jit.is_tracing():
+    #     return True
+    if torch.jit.is_scripting():
+        return tensor.is_contiguous()
+    else:
+        return tensor.is_contiguous(memory_format=torch.contiguous_format)
+
+
+class LayerNorm2d(nn.LayerNorm):
+    r""" LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, H, W).
+    """
+
+    def __init__(self, normalized_shape, eps=1e-6):
+        super().__init__(normalized_shape, eps=eps)
+
+    def forward(self, x) -> torch.Tensor:
+        if _is_contiguous(x):
+            return F.layer_norm(
+                x.permute(0, 2, 3, 1), self.normalized_shape, self.weight, self.bias, self.eps).permute(0, 3, 1, 2)
+        else:
+            s, u = torch.var_mean(x, dim=1, unbiased=False, keepdim=True)
+            x = (x - u) * torch.rsqrt(s + self.eps)
+            x = x * self.weight[:, None, None] + self.bias[:, None, None]
+            return x
+
 class DynamicFeatureDistillation(nn.Module):
     def __init__(
             self,
@@ -506,10 +534,10 @@ class DynamicFeatureDistillation(nn.Module):
             self.student_unembedding.append(nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False))
 
         self.student_bns=nn.ModuleList([
-            nn.BatchNorm2d(s_channel) for s_channel in student_channels[distill_number:]
+            LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]
         ])
         self.teacher_bns=nn.ModuleList([
-            nn.BatchNorm2d(s_channel) for s_channel in student_channels[distill_number:]
+            LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]
         ])
 
 
@@ -592,14 +620,34 @@ class DynamicFeatureDistillation(nn.Module):
             result.append(f)
         return result
 
-    def forward(self, teacher_feature_maps, student_feature_maps) -> torch.Tensor:
+    def fc_forward(self, feature_maps, fc_embeddings):
+        result = []
+        for feature_map, fc_embedding in zip(feature_maps, fc_embeddings):
+            f = fc_embedding(feature_map)
+            result.append(f)
+        return result
+
+    def kl_loss(self,teacher_logits,student_logits,targets,temperature=1):
+        kl_loss=0.
+        for teacher_logit, student_logit in zip(teacher_logits,student_logits):
+            a=(temperature**2)*F.kl_div(
+                torch.log_softmax(student_logit/temperature,1),
+                torch.softmax(teacher_logit/temperature,1),reduction="batchmean",
+            )
+            b=F.kl_div(
+                torch.log_softmax(teacher_logit,1),targets,reduction="batchmean"
+            )
+            kl_loss+=(a+b)
+        return kl_loss
+    def forward(self, teacher_feature_maps, student_feature_maps , targets) -> torch.Tensor:
         teacher_feature_maps = teacher_feature_maps[self.distill_number:]
         student_feature_maps = student_feature_maps[self.distill_number:]
 
         # TODO: Only original sample
-        # b = teacher_feature_maps[0].shape[0] // 2
-        # teacher_feature_maps = [i[b:] for i in teacher_feature_maps]
-        # student_feature_maps = [i[b:] for i in student_feature_maps]
+        b = teacher_feature_maps[0].shape[0] // 2
+        teacher_feature_maps = [i[b:] for i in teacher_feature_maps]
+        student_feature_maps = [i[b:] for i in student_feature_maps]
+        targets = targets[b:]
 
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
@@ -620,6 +668,9 @@ class DynamicFeatureDistillation(nn.Module):
         student_feature_maps = self.bn_forward(student_feature_maps,self.student_bns)
         teacher_feature_maps = self.bn_forward(teacher_feature_maps,self.teacher_bns)
 
+        student_feature_logits = self.fc_forward(student_feature_maps,self.student_fcs)
+        teacher_feature_logits = self.fc_forward(teacher_feature_maps,self.teacher_fcs)
+        kl_loss=self.kl_loss(teacher_feature_logits,student_feature_logits,targets)
         ratios = self.compute_ratio(new_teacher_feature_maps, student_feature_maps)
         self.ratio_update(ratios)
         ratios = self.ratios
@@ -638,14 +689,14 @@ class DynamicFeatureDistillation(nn.Module):
         )
 
         student_feature_maps = self.all_fist_conv_layer_forward(student_feature_maps, self.student_unembedding)
+        dfd_loss = 0.0
 
-        loss = 0.0
         for teacher_feature_map, student_feature_map in zip(
                 teacher_feature_maps, student_feature_maps
         ):
-            loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
+            dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
 
-        return loss
+        return dfd_loss,kl_loss
 
 
 # if __name__ == "__main__":

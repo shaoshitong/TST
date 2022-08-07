@@ -31,17 +31,17 @@ def log_backward(module, grad_inputs, grad_outputs):
 
 class LearnDiversifyEnv(object):
     def __init__(
-        self,
-        dataloader: DataLoader,
-        testloader: DataLoader,
-        student_model: nn.Module,
-        teacher_model: nn.Module,
-        scheduler: torch.optim.lr_scheduler.MultiStepLR,
-        optimizer: torch.optim.Optimizer,
-        loss: nn.Module,
-        yaml,
-        wandb,
-        device=None,
+            self,
+            dataloader: DataLoader,
+            testloader: DataLoader,
+            student_model: nn.Module,
+            teacher_model: nn.Module,
+            scheduler: torch.optim.lr_scheduler.MultiStepLR,
+            optimizer: torch.optim.Optimizer,
+            loss: nn.Module,
+            yaml,
+            wandb,
+            device=None,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -170,6 +170,7 @@ class LearnDiversifyEnv(object):
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
 
         self.only_satge_one = self.yaml['only_stage_one']
+
     def reset_parameters(self, modules):
         for module in modules:
             if isinstance(module, nn.Linear):
@@ -279,9 +280,9 @@ class LearnDiversifyEnv(object):
                 temp[rand_choose], target_temp[rand_choose]
             )
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-            inputs_max,target_temp = self.convertor(temp,target_temp, indexs, 2 * self.epoch)
+            inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch)
         else:
-            inputs_max,target_temp = self.convertor(temp,target_temp, indexs, 2 * self.epoch)
+            inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch)
 
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
@@ -308,7 +309,7 @@ class LearnDiversifyEnv(object):
         # TODO: 2. Lilikehood Loss student and teacher
         augmented_studnet_mu = student_mu[:b]
         augmented_student_logvar = student_logvar[:b]
-        if self.weights[1]==0:
+        if self.weights[1] == 0:
             likeli_loss = torch.Tensor([0.]).cuda()
         else:
             likeli_loss = -self.Loglikeli(
@@ -326,13 +327,14 @@ class LearnDiversifyEnv(object):
             dfd_loss = torch.Tensor([0.]).cuda()
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(teacher_tuple, student_tuple)
+                dfd_loss, ss_kd_loss = self.dfd(teacher_tuple, student_tuple, labels)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
-            self.weights[0] * vanilla_kd_loss
-            + self.weights[1] * likeli_loss
-            + self.weights[2] * dfd_loss
+                self.weights[0] * vanilla_kd_loss
+                + self.weights[1] * likeli_loss
+                + self.weights[2] * dfd_loss
+                + self.weights[3] * ss_kd_loss
         )
         # self.hook.show()
         self.optimizer.zero_grad()
@@ -340,8 +342,6 @@ class LearnDiversifyEnv(object):
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
-        original_sample = input[0]
-        augment_sample = inputs_max[0]
         # TODO: Second Stage
 
         if not self.only_satge_one:
@@ -354,9 +354,9 @@ class LearnDiversifyEnv(object):
                 )
 
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch+1)
+                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch + 1)
             else:
-                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch+1)
+                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch + 1)
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
@@ -396,12 +396,12 @@ class LearnDiversifyEnv(object):
             aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
             t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
             distance1 = (
-                -F.kl_div(
-                    (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
-                    (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
-                    reduction="batchmean",
-                )
-                * (self.yaml["criticion"]["temperature"] ** 2)
+                    -F.kl_div(
+                        (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
+                        (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
+                        reduction="batchmean",
+                    )
+                    * (self.yaml["criticion"]["temperature"] ** 2)
             )
             distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
             task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
@@ -412,13 +412,15 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = torch.Tensor([0.]).cuda()
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd(teacher_tuples, student_tuples) * 0.8
+                    ne_dfd_loss, ne_ss_kd_loss = self.dfd(teacher_tuples, student_tuples, labels)
+                    ne_dfd_loss, ne_ss_kd_loss = -0.8 * ne_dfd_loss, -0.8 * ne_ss_kd_loss
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
-                +self.weights[3] * ne_dfd_loss
-                + self.weights[4] * club_loss
-                + self.weights[5] * task_loss
+                    self.weights[4] * ne_ss_kd_loss
+                    + self.weights[5] * ne_dfd_loss
+                    + self.weights[6] * club_loss
+                    + self.weights[7] * task_loss
             )
 
             # TODO: update params
@@ -428,13 +430,15 @@ class LearnDiversifyEnv(object):
             self.scaler.step(self.convertor_optimizer)
             self.scaler.update()
         else:
-            ne_dfd_loss =  torch.Tensor([0.]).cuda()
+            ne_dfd_loss = torch.Tensor([0.]).cuda()
             club_loss = torch.Tensor([0.]).cuda()
             task_loss = torch.Tensor([0.]).cuda()
+            ne_ss_kd_loss = torch.Tensor([0.]).cuda()
             loss_2 = (
-                +self.weights[3] * ne_dfd_loss
-                + self.weights[4] * club_loss
-                + self.weights[5] * task_loss
+                    self.weights[4] * ne_ss_kd_loss
+                    + self.weights[5] * ne_dfd_loss
+                    + self.weights[6] * club_loss
+                    + self.weights[7] * task_loss
             )
 
         # TODO: Compute top1 and top5
@@ -452,6 +456,8 @@ class LearnDiversifyEnv(object):
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
             dfd_loss.cpu().item(),
+            ss_kd_loss.cpu().item(),
+            ne_ss_kd_loss.cpu().item(),
             ne_dfd_loss.cpu().item(),
             likeli_loss.cpu().item(),
             club_loss.cpu().item(),
@@ -482,6 +488,8 @@ class LearnDiversifyEnv(object):
                 top1,
                 vanilla_kd_loss,
                 dfd_loss,
+                ss_kd_loss,
+                ne_ss_kd_loss,
                 ne_dfd_loss,
                 likeli_loss,
                 club_loss,
@@ -492,6 +500,8 @@ class LearnDiversifyEnv(object):
                     "top1": top1,
                     "vanilla_kd_loss": vanilla_kd_loss,
                     "dfd_loss": dfd_loss,
+                    "ss_kd_loss": ss_kd_loss,
+                    "ne_ss_kd_loss": ne_ss_kd_loss,
                     "ne_dfd_loss": ne_dfd_loss,
                     "likeli_loss": likeli_loss,
                     "club_loss": club_loss,
