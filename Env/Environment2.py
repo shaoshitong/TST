@@ -275,9 +275,9 @@ class LearnDiversifyEnv(object):
                 temp[rand_choose], target_temp[rand_choose]
             )
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-            inputs_max = self.convertor(temp, indexs, 2 * self.epoch)
+            inputs_max,target_temp = self.convertor(temp,target_temp, indexs, 2 * self.epoch)
         else:
-            inputs_max = self.convertor(temp, indexs, 2 * self.epoch)
+            inputs_max,target_temp = self.convertor(temp,target_temp, indexs, 2 * self.epoch)
 
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
@@ -348,9 +348,9 @@ class LearnDiversifyEnv(object):
                 )
 
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-                inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
+                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch+1)
             else:
-                inputs_max = self.convertor(temp, indexs, 2 * self.epoch + 1)
+                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch+1)
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape

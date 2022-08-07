@@ -17,6 +17,7 @@ from torchvision.transforms.autoaugment import (
     Tensor,
     Tuple,
 )
+from datas.Augmentation import cutmix
 
 
 class Normalize(nn.Module):
@@ -225,7 +226,6 @@ class LearningAutoAugment(transforms.AutoAugment):
                 self.policies_set.append(copy.deepcopy(second_policies))
                 all_policies_set.add(second_policies[0])
         self.policies = list(self.policies_set)
-
         self.policies = [
             ("AutoContrast", p, None),
             ("Contrast", p, 3),
@@ -242,6 +242,8 @@ class LearningAutoAugment(transforms.AutoAugment):
             ("Equalize", p, None),
             ("Rotate", p, 3),
         ] if policy == AutoAugmentPolicy.CIFAR10 else self.policies
+        self.policies.append(('CutMix', None, None))
+        print(self.policies)
         self.tran = (
             transforms.Compose(
                 [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
@@ -279,7 +281,7 @@ class LearningAutoAugment(transforms.AutoAugment):
                 .add_((1.0 - momentum) * weight.clone().detach().float())
         )
 
-    def forward(self, img: Tensor, indexs, epoch):
+    def forward(self, img: Tensor, y, indexs, epoch):
         """
         Tensor -> Tensor (to translate)
         """
@@ -314,6 +316,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         op_meta = self._augmentation_space(10, img_size)
         # TODO: 让每种操作都进行，所以模型该学习何物？
         results = []
+        lasbels = [y]
         results.append(self.tran(img / 255))
         # TODO: 应当用竞争机制来生成对应的输出...
         for randindex in randperm:
@@ -323,17 +326,22 @@ class LearningAutoAugment(transforms.AutoAugment):
             (op_name, p, magnitude_id) = policy
             p = self.p
             if prob <= p:
-                magnitudes, signed = op_meta[op_name]
-                magnitude = (
-                    float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
-                )
-                if signed and sign:
-                    magnitude *= -1.0
-                img = _apply_op(
-                    img, op_name, magnitude, interpolation=self.interpolation, fill=fill
-                )
+                if op_name != "CutMix":
+                    magnitudes, signed = op_meta[op_name]
+                    magnitude = (
+                        float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                    )
+                    if signed and sign:
+                        magnitude *= -1.0
+                    img = _apply_op(
+                        img, op_name, magnitude, interpolation=self.interpolation, fill=fill
+                    )
+                else:
+                    img, y = cutmix(img, y, num_classes=y.shape[1])
             results.append(self.tran(img / 255))
+            lasbels.append(y)
         results = torch.stack(results, 0)  # P,B,C,H,W
+        labels = torch.stack(lasbels, 0)
         P, B, C, H, W = results.shape
         results = results.view(P, B, -1)  # P,B,C*H*W
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
@@ -357,6 +365,7 @@ class LearningAutoAugment(transforms.AutoAugment):
             attention_vector = use_attention_vector.detach()
         else:
             attention_vector = attention_vector
+        attention_vector = torch.ones_like(attention_vector, device=attention_vector.device)
         # TODO: End
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(
@@ -368,7 +377,10 @@ class LearningAutoAugment(transforms.AutoAugment):
         result = (
                 (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
         ).view(B, C, H, W)
-        return result
+        labels = (
+                (different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)
+        ).view(B, -1)
+        return result, labels
 
 #
 # model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()
