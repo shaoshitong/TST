@@ -31,17 +31,17 @@ def log_backward(module, grad_inputs, grad_outputs):
 
 class LearnDiversifyEnv(object):
     def __init__(
-            self,
-            dataloader: DataLoader,
-            testloader: DataLoader,
-            student_model: nn.Module,
-            teacher_model: nn.Module,
-            scheduler: torch.optim.lr_scheduler.MultiStepLR,
-            optimizer: torch.optim.Optimizer,
-            loss: nn.Module,
-            yaml,
-            wandb,
-            device=None,
+        self,
+        dataloader: DataLoader,
+        testloader: DataLoader,
+        student_model: nn.Module,
+        teacher_model: nn.Module,
+        scheduler: torch.optim.lr_scheduler.MultiStepLR,
+        optimizer: torch.optim.Optimizer,
+        loss: nn.Module,
+        yaml,
+        wandb,
+        device=None,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -162,13 +162,14 @@ class LearnDiversifyEnv(object):
             student_channels=yaml["dfd"]["student_channels"],
             patch_size=yaml["dfd"]["patch_size"],
             distill_mode=yaml["dfd"]["distill_mode"],
-            swinblocknumber=yaml["dfd"]["swinblocknumber"]
+            swinblocknumber=yaml["dfd"]["swinblocknumber"],
         ).to(self.device)
 
         from utils.plthook import PltAboutHook
+
         # self.hook=PltAboutHook(self.dfd,mode='one')
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
-        self.only_satge_one = self.yaml['only_stage_one']
+        self.only_satge_one = self.yaml["only_stage_one"]
 
     def reset_parameters(self, modules):
         for module in modules:
@@ -307,11 +308,11 @@ class LearnDiversifyEnv(object):
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
 
-        # TODO: 2. Lilikehood Loss student and teacher
+        # TODO: 2. Lilikehood Loss student and teacher2
         augmented_studnet_mu = student_mu[:b]
         augmented_student_logvar = student_logvar[:b]
         if self.weights[1] == 0:
-            likeli_loss = torch.Tensor([0.]).cuda()
+            likeli_loss = torch.Tensor([0.0]).cuda()
         else:
             likeli_loss = -self.Loglikeli(
                 augmented_studnet_mu, augmented_student_logvar, student_embedding[b:]
@@ -325,18 +326,18 @@ class LearnDiversifyEnv(object):
 
         # TODO: 3 DFD Loss
         if self.weights[2] == 0:
-            dfd_loss = torch.Tensor([0.]).cuda()
-            ss_kd_loss = torch.Tensor([0.]).cuda()
+            dfd_loss = torch.Tensor([0.0]).cuda()
+            ss_kd_loss = torch.Tensor([0.0]).cuda()
         else:
             with torch.cuda.amp.autocast(enabled=True):
                 dfd_loss, ss_kd_loss = self.dfd(teacher_tuple, student_tuple, labels)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
-                self.weights[0] * vanilla_kd_loss
-                + self.weights[1] * likeli_loss
-                + self.weights[2] * dfd_loss
-                + self.weights[3] * ss_kd_loss
+            self.weights[0] * vanilla_kd_loss
+            + self.weights[1] * likeli_loss
+            + self.weights[2] * dfd_loss
+            + self.weights[3] * ss_kd_loss
         )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
@@ -346,7 +347,9 @@ class LearnDiversifyEnv(object):
         # TODO: Second Stage
 
         if not self.only_satge_one:
-            rand_choose = torch.randperm(input.shape[0])[: int(self.augmented_ratio * input.shape[0])]
+            rand_choose = torch.randperm(input.shape[0])[
+                : int(self.augmented_ratio * input.shape[0])
+            ]
             temp = input.clone()
             target_temp = target.clone()
             if rand_choose.shape[0] > 0:
@@ -355,9 +358,13 @@ class LearnDiversifyEnv(object):
                 )
 
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch + 1)
+                inputs_max, target_temp = self.convertor(
+                    temp, target_temp, indexs, 2 * self.epoch + 1
+                )
             else:
-                inputs_max, target_temp = self.convertor(temp, target_temp, indexs, 2 * self.epoch + 1)
+                inputs_max, target_temp = self.convertor(
+                    temp, target_temp, indexs, 2 * self.epoch + 1
+                )
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
@@ -399,12 +406,12 @@ class LearnDiversifyEnv(object):
             aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
             t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
             distance1 = (
-                    -F.kl_div(
-                        (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
-                        (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
-                        reduction="batchmean",
-                    )
-                    * (self.yaml["criticion"]["temperature"] ** 2)
+                -F.kl_div(
+                    (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
+                    (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
+                    reduction="batchmean",
+                )
+                * (self.yaml["criticion"]["temperature"] ** 2)
             )
             distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
             task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
@@ -412,8 +419,8 @@ class LearnDiversifyEnv(object):
             # TODO: 4 negative dfd loss
 
             if self.weights[3] == 0:
-                ne_dfd_loss = torch.Tensor([0.]).cuda()
-                ne_ss_kd_loss = torch.Tensor([0.]).cuda()
+                ne_dfd_loss = torch.Tensor([0.0]).cuda()
+                ne_ss_kd_loss = torch.Tensor([0.0]).cuda()
             else:
                 with torch.cuda.amp.autocast(enabled=True):
                     ne_dfd_loss, ne_ss_kd_loss = self.dfd(teacher_tuples, student_tuples, labels)
@@ -421,10 +428,10 @@ class LearnDiversifyEnv(object):
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
-                    self.weights[4] * ne_ss_kd_loss
-                    + self.weights[5] * ne_dfd_loss
-                    + self.weights[6] * club_loss
-                    + self.weights[7] * task_loss
+                self.weights[4] * ne_ss_kd_loss
+                + self.weights[5] * ne_dfd_loss
+                + self.weights[6] * club_loss
+                + self.weights[7] * task_loss
             )
 
             # TODO: update params
@@ -434,15 +441,15 @@ class LearnDiversifyEnv(object):
             self.scaler.step(self.convertor_optimizer)
             self.scaler.update()
         else:
-            ne_dfd_loss = torch.Tensor([0.]).cuda()
-            club_loss = torch.Tensor([0.]).cuda()
-            task_loss = torch.Tensor([0.]).cuda()
-            ne_ss_kd_loss = torch.Tensor([0.]).cuda()
+            ne_dfd_loss = torch.Tensor([0.0]).cuda()
+            club_loss = torch.Tensor([0.0]).cuda()
+            task_loss = torch.Tensor([0.0]).cuda()
+            ne_ss_kd_loss = torch.Tensor([0.0]).cuda()
             loss_2 = (
-                    self.weights[4] * ne_ss_kd_loss
-                    + self.weights[5] * ne_dfd_loss
-                    + self.weights[6] * club_loss
-                    + self.weights[7] * task_loss
+                self.weights[4] * ne_ss_kd_loss
+                + self.weights[5] * ne_dfd_loss
+                + self.weights[6] * club_loss
+                + self.weights[7] * task_loss
             )
 
         # TODO: Compute top1 and top5

@@ -78,12 +78,13 @@ if __name__ == "__main__":
     net: nn.Module = getattr(models, yaml_config["arch"])(
         num_classes=yaml_config["num_classes"]
     ).cuda()
-    ROOT = r"https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
+    ROOT = yaml_config["ckpt_root"]
+    local_ckpt_path = yaml_config["local_ckpt_path"]
     if yaml_config["tcheckpoint"]:
         tcheckpoint_path = ROOT + yaml_config["tcheckpoint"]
-        tnet = utils.load_model_from_url(tnet, tcheckpoint_path)
+        tnet = utils.load_model_from_url(tnet, tcheckpoint_path, local_ckpt_path)
     else:
-        raise NotImplementedError("the teacher's checkpoint file could not be found!")
+        raise NotImplementedError("the teacher2's checkpoint file could not be found!")
     optimizer_name = "torch.optim." + yaml_config["optimizer"]["type"]
     optimizer = getattr(torch.optim, yaml_config["optimizer"]["type"])(
         net.parameters(),

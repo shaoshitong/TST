@@ -1,5 +1,3 @@
-import random
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,7 +15,7 @@ class Mlp(nn.Module):
     """
 
     def __init__(
-            self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.0
+        self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.0
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -83,14 +81,14 @@ class WindowAttention(nn.Module):
     """
 
     def __init__(
-            self,
-            dim,
-            window_size,
-            num_heads,
-            qkv_bias=True,
-            attn_drop=0.0,
-            proj_drop=0.0,
-            pretrained_window_size=[0, 0],
+        self,
+        dim,
+        window_size,
+        num_heads,
+        qkv_bias=True,
+        attn_drop=0.0,
+        proj_drop=0.0,
+        pretrained_window_size=[0, 0],
     ):
 
         super().__init__()
@@ -119,9 +117,9 @@ class WindowAttention(nn.Module):
         )
         relative_coords_table = (
             torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w]))
-                .permute(1, 2, 0)
-                .contiguous()
-                .unsqueeze(0)
+            .permute(1, 2, 0)
+            .contiguous()
+            .unsqueeze(0)
         )  # 1, 2*Wh-1, 2*Ww-1, 2
         if pretrained_window_size[0] > 0:
             relative_coords_table[:, :, :, 0] /= pretrained_window_size[0] - 1
@@ -131,9 +129,9 @@ class WindowAttention(nn.Module):
             relative_coords_table[:, :, :, 1] /= self.window_size[1] - 1
         relative_coords_table *= 8  # normalize to -8, 8
         relative_coords_table = (
-                torch.sign(relative_coords_table)
-                * torch.log2(torch.abs(relative_coords_table) + 1.0)
-                / np.log2(8)
+            torch.sign(relative_coords_table)
+            * torch.log2(torch.abs(relative_coords_table) + 1.0)
+            / np.log2(8)
         )
 
         self.register_buffer("relative_coords_table", relative_coords_table)
@@ -234,20 +232,20 @@ class SwinTransformerBlock(nn.Module):
     """
 
     def __init__(
-            self,
-            dim,
-            input_resolution,
-            num_heads,
-            window_size=7,
-            shift_size=0,
-            mlp_ratio=4.0,
-            qkv_bias=True,
-            drop=0.0,
-            attn_drop=0.0,
-            drop_path=0.0,
-            act_layer=nn.GELU,
-            norm_layer=nn.LayerNorm,
-            pretrained_window_size=0,
+        self,
+        dim,
+        input_resolution,
+        num_heads,
+        window_size=7,
+        shift_size=0,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        drop=0.0,
+        attn_drop=0.0,
+        drop_path=0.0,
+        act_layer=nn.GELU,
+        norm_layer=nn.LayerNorm,
+        pretrained_window_size=0,
     ):
         super().__init__()
         self.dim = dim
@@ -356,10 +354,7 @@ class SwinTransformerBlock(nn.Module):
 class Classifier(nn.Module):
     def __init__(self, dim, num_classes):
         super(Classifier, self).__init__()
-        self.pool = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Flatten()
-        )
+        self.pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
         self.fc = nn.Linear(dim, num_classes)
 
     def forward(self, x):
@@ -378,8 +373,7 @@ def _is_contiguous(tensor: torch.Tensor) -> bool:
 
 
 class LayerNorm2d(nn.LayerNorm):
-    r""" LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, H, W).
-    """
+    r"""LayerNorm for channels_first tensors with 2d spatial dimensions (ie N, C, H, W)."""
 
     def __init__(self, normalized_shape, eps=1e-6):
         super().__init__(normalized_shape, eps=eps)
@@ -387,7 +381,8 @@ class LayerNorm2d(nn.LayerNorm):
     def forward(self, x) -> torch.Tensor:
         if _is_contiguous(x):
             return F.layer_norm(
-                x.permute(0, 2, 3, 1), self.normalized_shape, self.weight, self.bias, self.eps).permute(0, 3, 1, 2)
+                x.permute(0, 2, 3, 1), self.normalized_shape, self.weight, self.bias, self.eps
+            ).permute(0, 3, 1, 2)
         else:
             s, u = torch.var_mean(x, dim=1, unbiased=False, keepdim=True)
             x = (x - u) * torch.rsqrt(s + self.eps)
@@ -397,14 +392,14 @@ class LayerNorm2d(nn.LayerNorm):
 
 class DynamicFeatureDistillation(nn.Module):
     def __init__(
-            self,
-            features_size: tuple,
-            teacher_channels: tuple,
-            student_channels: tuple,
-            patch_size=4,
-            swinblocknumber=[4, 3, 2],
-            distill_mode="all",
-            num_classes=100,
+        self,
+        features_size: tuple,
+        teacher_channels: tuple,
+        student_channels: tuple,
+        patch_size=4,
+        swinblocknumber=[4, 3, 2],
+        distill_mode="all",
+        num_classes=100,
     ):
         """
         This dynamic knowledge distillation requires that
@@ -434,9 +429,9 @@ class DynamicFeatureDistillation(nn.Module):
 
         self.teacher_first_conv_embeddings = nn.ModuleList([])
         for size, t_channel, s_channel in zip(
-                features_size[distill_number:],
-                teacher_channels[distill_number:],
-                student_channels[distill_number:],
+            features_size[distill_number:],
+            teacher_channels[distill_number:],
+            student_channels[distill_number:],
         ):
             conv_layer = nn.Conv2d(
                 in_channels=t_channel,
@@ -448,9 +443,9 @@ class DynamicFeatureDistillation(nn.Module):
             self.teacher_first_conv_embeddings.append(conv_layer)
         self.student_first_conv_embeddings = nn.ModuleList([])
         for size, s_channel, s_channel in zip(
-                features_size[distill_number:],
-                student_channels[distill_number:],
-                student_channels[distill_number:],
+            features_size[distill_number:],
+            student_channels[distill_number:],
+            student_channels[distill_number:],
         ):
             conv_layer = nn.Conv2d(
                 in_channels=s_channel,
@@ -466,7 +461,7 @@ class DynamicFeatureDistillation(nn.Module):
         self.vit_encoder1_embeddings = nn.ModuleList([])
         ite = 0
         for size, s_channel in zip(
-                features_size[distill_number:], student_channels[distill_number:]
+            features_size[distill_number:], student_channels[distill_number:]
         ):
             vit_embedding = nn.Sequential(*[])
             for i in range(self.swinblocknumber[ite]):
@@ -487,7 +482,7 @@ class DynamicFeatureDistillation(nn.Module):
         self.vit_encoder2_embeddings = nn.ModuleList([])
         ite = 0
         for size, s_channel in zip(
-                features_size[distill_number:], student_channels[distill_number:]
+            features_size[distill_number:], student_channels[distill_number:]
         ):
             vit_embedding = nn.Sequential(*[])
             for i in range(self.swinblocknumber[ite]):
@@ -508,9 +503,9 @@ class DynamicFeatureDistillation(nn.Module):
         self.vit_decoder_embeddings = nn.ModuleList([])
         ite = 0
         for size, s_channel, t_channel in zip(
-                features_size[distill_number:],
-                student_channels[distill_number:],
-                teacher_channels[distill_number:]
+            features_size[distill_number:],
+            student_channels[distill_number:],
+            teacher_channels[distill_number:],
         ):
             vit_embedding = nn.Sequential(*[])
             for i in range(self.swinblocknumber[ite]):
@@ -530,31 +525,33 @@ class DynamicFeatureDistillation(nn.Module):
 
         self.student_unembedding = nn.ModuleList([])
         for size, s_channel, t_channel in zip(
-                features_size[distill_number:],
-                student_channels[distill_number:],
-                teacher_channels[distill_number:]
+            features_size[distill_number:],
+            student_channels[distill_number:],
+            teacher_channels[distill_number:],
         ):
-            self.student_unembedding.append(nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False))
+            self.student_unembedding.append(
+                nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False)
+            )
 
-        self.student_bns = nn.ModuleList([
-            LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]
-        ])
-        self.teacher_bns = nn.ModuleList([
-            LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]
-        ])
+        self.student_bns = nn.ModuleList(
+            [LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]]
+        )
+        self.teacher_bns = nn.ModuleList(
+            [LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]]
+        )
 
-        self.student_bns2 = nn.ModuleList([
-            LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]
-        ])
-        self.teacher_bns2 = nn.ModuleList([
-            LayerNorm2d(t_channel) for t_channel in teacher_channels[distill_number:]
-        ])
-        self.student_fcs = nn.ModuleList([
-            Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]
-        ])
-        self.teacher_fcs = nn.ModuleList([
-            Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]
-        ])
+        self.student_bns2 = nn.ModuleList(
+            [LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]]
+        )
+        self.teacher_bns2 = nn.ModuleList(
+            [LayerNorm2d(t_channel) for t_channel in teacher_channels[distill_number:]]
+        )
+        self.student_fcs = nn.ModuleList(
+            [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
+        )
+        self.teacher_fcs = nn.ModuleList(
+            [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
+        )
         self.cross = nn.CrossEntropyLoss()
 
         # TODO: build flatten
@@ -562,7 +559,7 @@ class DynamicFeatureDistillation(nn.Module):
         self.flatten = nn.Flatten()
 
     def mix_student_and_teacher(
-            self, teacher_feature_map, student_feature_map, ratio: float = 0.5
+        self, teacher_feature_map, student_feature_map, ratio: float = 0.5
     ) -> torch.Tensor:
         """
         Here, we perform a completely random mask
@@ -574,7 +571,7 @@ class DynamicFeatureDistillation(nn.Module):
 
     def vit_forward(self, feature_map, vit_embedding):
         """
-        Support both student and teacher's feature map forward communication here
+        Support both student and teacher2's feature map forward communication here
         """
         b, c, h, w = feature_map.shape
         feature_map = rearrange(feature_map, "b c h w -> b (h w) c")
@@ -603,7 +600,7 @@ class DynamicFeatureDistillation(nn.Module):
         result = []
 
         for teacher_feature_map, student_feature_map in zip(
-                teacher_feature_maps, student_feature_maps
+            teacher_feature_maps, student_feature_maps
         ):
             teacher_feature_map = self.flatten(teacher_feature_map)
             student_feature_map = self.flatten(student_feature_map)
@@ -618,7 +615,7 @@ class DynamicFeatureDistillation(nn.Module):
 
     def ratio_update(self, ratio):
         if not hasattr(self, "ratios"):
-            self.ratios = [0.5 for i in range(len(self.features_size[self.distill_number:]))]
+            self.ratios = [0.5 for i in range(len(self.features_size[self.distill_number :]))]
         for i, r in enumerate(ratio):
             self.ratios[i] = 0.9 * self.ratios[i] + 0.1 * r
 
@@ -637,19 +634,20 @@ class DynamicFeatureDistillation(nn.Module):
         return result
 
     def kl_loss(self, teacher_logits, student_logits, targets, temperature=1):
-        kl_loss = 0.
+        kl_loss = 0.0
         for teacher_logit, student_logit in zip(teacher_logits, student_logits):
             a = (temperature ** 2) * F.kl_div(
                 torch.log_softmax(student_logit / temperature, 1),
-                torch.softmax(teacher_logit / temperature, 1), reduction="batchmean",
+                torch.softmax(teacher_logit / temperature, 1),
+                reduction="batchmean",
             )
             b = self.cross(teacher_logit, targets)
-            kl_loss += (a + b)
+            kl_loss += a + b
         return kl_loss
 
     def forward(self, teacher_feature_maps, student_feature_maps, targets) -> torch.Tensor:
-        teacher_feature_maps = teacher_feature_maps[self.distill_number:]
-        student_feature_maps = student_feature_maps[self.distill_number:]
+        teacher_feature_maps = teacher_feature_maps[self.distill_number :]
+        student_feature_maps = student_feature_maps[self.distill_number :]
 
         # TODO: Only original sample
         # b = teacher_feature_maps[0].shape[0] // 2
@@ -659,7 +657,6 @@ class DynamicFeatureDistillation(nn.Module):
 
         student_feature_maps = self.bn_forward(student_feature_maps, self.student_bns2)
         teacher_feature_maps = self.bn_forward(teacher_feature_maps, self.teacher_bns2)
-
 
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
@@ -678,14 +675,11 @@ class DynamicFeatureDistillation(nn.Module):
             new_teacher_feature_maps, self.vit_encoder2_embeddings
         )
 
-
         student_feature_maps = self.bn_forward(student_feature_maps, self.student_bns)
         teacher_feature_maps = self.bn_forward(teacher_feature_maps, self.teacher_bns)
 
-
         student_feature_logits = self.fc_forward(student_feature_maps, self.student_fcs)
         teacher_feature_logits = self.fc_forward(teacher_feature_maps, self.teacher_fcs)
-
 
         kl_loss = self.kl_loss(teacher_feature_logits, student_feature_logits, targets)
         ratios = self.compute_ratio(new_teacher_feature_maps, student_feature_maps)
@@ -693,7 +687,7 @@ class DynamicFeatureDistillation(nn.Module):
         ratios = self.ratios
         mix_student_feature_maps = []
         for ratio, new_teacher_feature_map, student_feature_map in zip(
-                ratios, new_teacher_feature_maps, student_feature_maps
+            ratios, new_teacher_feature_maps, student_feature_maps
         ):
             mix_student_feature_map = self.mix_student_and_teacher(
                 new_teacher_feature_map, student_feature_map, ratio=ratio
@@ -704,15 +698,18 @@ class DynamicFeatureDistillation(nn.Module):
             mix_student_feature_maps, self.vit_decoder_embeddings
         )
 
-        student_feature_maps = self.all_fist_conv_layer_forward(student_feature_maps, self.student_unembedding)
+        student_feature_maps = self.all_fist_conv_layer_forward(
+            student_feature_maps, self.student_unembedding
+        )
         dfd_loss = 0.0
 
         for teacher_feature_map, student_feature_map in zip(
-                teacher_feature_maps, student_feature_maps
+            teacher_feature_maps, student_feature_maps
         ):
             dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
 
         return dfd_loss, kl_loss
+
 
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),

@@ -17,6 +17,7 @@ from torchvision.transforms.autoaugment import (
     Tensor,
     Tuple,
 )
+
 from datas.Augmentation import cutmix
 
 
@@ -91,12 +92,12 @@ class Flow_Attention(nn.Module):
         source_competition = torch.softmax(conserved_source, dim=-1) * float(keys.shape[2])
         # (4) dot product
         x = (
-                self.dot_product(
-                    queries * sink_incoming[:, :, :, None],  # for value normalization
-                    keys,
-                    values * source_competition[:, :, :, None],
-                )  # competition
-                * sink_allocation[:, :, :, None]
+            self.dot_product(
+                queries * sink_incoming[:, :, :, None],  # for value normalization
+                keys,
+                values * source_competition[:, :, :, None],
+            )  # competition
+            * sink_allocation[:, :, :, None]
         ).transpose(
             1, 2
         )  # allocation
@@ -108,11 +109,11 @@ class Flow_Attention(nn.Module):
 
 
 def _apply_op(
-        img: Tensor,
-        op_name: str,
-        magnitude: float,
-        interpolation: InterpolationMode,
-        fill: Optional[List[float]],
+    img: Tensor,
+    op_name: str,
+    magnitude: float,
+    interpolation: InterpolationMode,
+    fill: Optional[List[float]],
 ):
     if op_name == "ShearX":
         # magnitude should be arctan(magnitude)
@@ -193,15 +194,15 @@ def _apply_op(
 
 class LearningAutoAugment(transforms.AutoAugment):
     def __init__(
-            self,
-            policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
-            interpolation: InterpolationMode = InterpolationMode.NEAREST,
-            fill: Optional[List[float]] = None,
-            p=0.25,
-            C=3,
-            H=224,
-            W=224,
-            num_train_samples=50000,
+        self,
+        policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
+        interpolation: InterpolationMode = InterpolationMode.NEAREST,
+        fill: Optional[List[float]] = None,
+        p=0.25,
+        C=3,
+        H=224,
+        W=224,
+        num_train_samples=50000,
     ):
         super(LearningAutoAugment, self).__init__(
             policy,
@@ -242,7 +243,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         #     ("Equalize", p, None),
         #     ("Rotate", p, 3),
         # ] if policy == AutoAugmentPolicy.CIFAR10 else self.policies
-        self.policies.append(('CutMix', None, None))
+        self.policies.append(("CutMix", None, None))
         print(self.policies)
         self.tran = (
             transforms.Compose(
@@ -277,8 +278,8 @@ class LearningAutoAugment(transforms.AutoAugment):
 
         self.buffer[indexs] = (
             self.buffer[indexs]
-                .mul_(momentum)
-                .add_((1.0 - momentum) * weight.clone().detach().float())
+            .mul_(momentum)
+            .add_((1.0 - momentum) * weight.clone().detach().float())
         )
 
     def forward(self, img: Tensor, y, indexs, epoch):
@@ -287,7 +288,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         assert isinstance(img, Tensor), "The input must be Tensor!"
         assert (
-                img.shape[1] == 1 or img.shape[1] == 3
+            img.shape[1] == 1 or img.shape[1] == 3
         ), "The channels for image input must be 1 and 3"
         if img.dtype != torch.uint8:
             if self.policy == AutoAugmentPolicy.CIFAR10:
@@ -302,7 +303,7 @@ class LearningAutoAugment(transforms.AutoAugment):
             torch.clip_(img, 0, 255)
             img = img.type(torch.uint8)
         assert (
-                img.dtype == torch.uint8
+            img.dtype == torch.uint8
         ), "Only torch.uint8 image tensors are supported, but found torch.int64"
 
         fill = self.fill
@@ -349,11 +350,11 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
 
         attention_vector = (
-                einops.rearrange(
-                    torch.sigmoid(self.fc(einops.rearrange(results[1:], "p b c -> b (p c)"))),
-                    "b c -> c b",
-                )[..., None]
-                + 1
+            einops.rearrange(
+                torch.sigmoid(self.fc(einops.rearrange(results[1:], "p b c -> b (p c)"))),
+                "b c -> c b",
+            )[..., None]
+            + 1
         )
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
@@ -374,12 +375,13 @@ class LearningAutoAugment(transforms.AutoAugment):
             -1
         ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
         result = (
-                (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
+            (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
         ).view(B, C, H, W)
-        labels = (
-                (different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)
-        ).view(B, -1)
+        labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
+            B, -1
+        )
         return result, labels
+
 
 #
 # model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()

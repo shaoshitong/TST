@@ -152,7 +152,7 @@ class ShuffleNetV2(nn.Module):
         return feat_m
 
     def get_bn_before_relu(self):
-        raise NotImplementedError('ShuffleNetV2 currently is not supported for "Overhaul" teacher')
+        raise NotImplementedError('ShuffleNetV2 currently is not supported for "Overhaul" teacher2')
 
     def forward(self, x, is_feat=False, preact=False):
         out = F.relu(self.bn1(self.conv1(x)))

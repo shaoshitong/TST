@@ -70,7 +70,7 @@ if __name__ == "__main__":
         tcheckpoint_path = ROOT + yaml_config["tcheckpoint"]
         tnet = utils.load_model_from_url(tnet, tcheckpoint_path)
     else:
-        raise NotImplementedError("the teacher's checkpoint file could not be found!")
+        raise NotImplementedError("the teacher2's checkpoint file could not be found!")
     optimizer_name = "torch.optim." + yaml_config["optimizer"]["type"]
     optimizer = getattr(torch.optim, yaml_config["optimizer"]["type"])(
         net.parameters(),

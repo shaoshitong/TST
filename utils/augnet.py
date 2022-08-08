@@ -168,6 +168,6 @@ class SmallImageAugNet(nn.Module):
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
 
-    def forward(self, x,y, indexs, epoch):
-        x,y = self.learningautoaugment(x,y, indexs, epoch)
-        return x,y
+    def forward(self, x, y, indexs, epoch):
+        x, y = self.learningautoaugment(x, y, indexs, epoch)
+        return x, y

@@ -18,10 +18,10 @@ def load_model(model_dict, model):
     return model
 
 
-def load_model_from_url(model, url):
+def load_model_from_url(model, url, local_ckpt_path="./checkpoints/teacher2"):
     state_dict = torch.hub.load_state_dict_from_url(
         url,
-        model_dir="./checkpoints/teacher",
+        model_dir=local_ckpt_path,
         progress=True,
         map_location=torch.device("cpu"),
     )
