@@ -292,6 +292,8 @@ class LearnDiversifyEnv(object):
                 (teacher_tuple, teacher_logits) = self.teacher_model(data_aug, is_feat=True)
             student_lambda = student_tuple[-1]
             teacher_lambda = teacher_tuple[-1]
+            student_tuple = student_tuple[:-1]
+            teacher_tuple = teacher_tuple[:-1]
             student_avgpool = self.avgpool2d(student_lambda)
             teacher_avgpool = self.avgpool2d(teacher_lambda)
             student_logvar = self.p_logvar(student_avgpool)
@@ -365,6 +367,8 @@ class LearnDiversifyEnv(object):
                 teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
                 student_lambda = student_tuples[-1]
                 teacher_lambda = teacher_tuples[-1]
+                student_tuples = student_tuples[:-1]
+                teacher_tuples = teacher_tuples[:-1]
                 student_avgpool = self.avgpool2d(student_lambda)
                 teacher_avgpool = self.avgpool2d(teacher_lambda)
                 student_logvar = self.p_logvar(student_avgpool)
@@ -560,6 +564,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
+        self.teacher_model.eval()
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()

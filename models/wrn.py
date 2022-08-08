@@ -154,11 +154,12 @@ class WideResNet(nn.Module):
         # TODO: MOD
         f3 = out
         out = self.relu(self.bn1(out))
+        f4 = out
         out = F.avg_pool2d(out, 8)
         out = out.view(-1, self.nChannels)
         out = self.fc(out)
         if is_feat:
-            return [f1, f2, f3], out
+            return [f1, f2, f3, f4], out
         else:
             return out
 
