@@ -118,8 +118,8 @@ dfd:
 only_stage_one:
   False
 
-ckpt_path:
+ckpt_root:
   "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.2/"
 local_ckpt_path:
   "./checkpoints/teacher1"
-# LEFT, only DFD, RIGHT only LLA
+# DFD try, DKD and DPK's teacher eval, SSKD and HSAKD's teacher eval
