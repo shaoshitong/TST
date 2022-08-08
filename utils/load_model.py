@@ -26,7 +26,7 @@ def load_model(model_dict, model):
 def load_model_from_url(model, url):
     state_dict = torch.hub.load_state_dict_from_url(
         url,
-        model_dir="/root/.cache/torch/hub/checkpoints",
+        model_dir="./checkpoints/teacher",
         progress=True,
         map_location=torch.device("cpu"),
     )

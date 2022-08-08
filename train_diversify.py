@@ -78,7 +78,7 @@ if __name__ == "__main__":
     net: nn.Module = getattr(models, yaml_config["arch"])(
         num_classes=yaml_config["num_classes"]
     ).cuda()
-    ROOT = r"https://github.com/shaoshitong/torchdistill/releases/download/v0.3.2/"
+    ROOT = r"https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
     if yaml_config["tcheckpoint"]:
         tcheckpoint_path = ROOT + yaml_config["tcheckpoint"]
         tnet = utils.load_model_from_url(tnet, tcheckpoint_path)

@@ -168,7 +168,6 @@ class LearnDiversifyEnv(object):
         from utils.plthook import PltAboutHook
         # self.hook=PltAboutHook(self.dfd,mode='one')
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
-
         self.only_satge_one = self.yaml['only_stage_one']
 
     def reset_parameters(self, modules):
@@ -325,6 +324,7 @@ class LearnDiversifyEnv(object):
         # TODO: 3 DFD Loss
         if self.weights[2] == 0:
             dfd_loss = torch.Tensor([0.]).cuda()
+            ss_kd_loss = torch.Tensor([0.]).cuda()
         else:
             with torch.cuda.amp.autocast(enabled=True):
                 dfd_loss, ss_kd_loss = self.dfd(teacher_tuple, student_tuple, labels)
@@ -336,7 +336,6 @@ class LearnDiversifyEnv(object):
                 + self.weights[2] * dfd_loss
                 + self.weights[3] * ss_kd_loss
         )
-        # self.hook.show()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
@@ -410,6 +409,7 @@ class LearnDiversifyEnv(object):
 
             if self.weights[3] == 0:
                 ne_dfd_loss = torch.Tensor([0.]).cuda()
+                ne_ss_kd_loss = torch.Tensor([0.]).cuda()
             else:
                 with torch.cuda.amp.autocast(enabled=True):
                     ne_dfd_loss, ne_ss_kd_loss = self.dfd(teacher_tuples, student_tuples, labels)
@@ -564,6 +564,7 @@ class LearnDiversifyEnv(object):
             ttop1, tloss, _ = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()
             self.scheduler_step()
+            # self.hook.show()
             self.wandb.log(
                 {"train_loss": tloss, "train_top1": ttop1, "val_top1": vtop1}, step=self.epoch
             )
