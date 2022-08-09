@@ -325,7 +325,7 @@ class LearnDiversifyEnv(object):
             likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
 
         # TODO: 3 DFD Loss
-        if self.weights[2] == 0:
+        if self.weights[3] == 0:
             dfd_loss = torch.Tensor([0.0]).cuda()
             ss_kd_loss = torch.Tensor([0.0]).cuda()
         else:
@@ -571,12 +571,10 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
-        self.teacher_model.eval()
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()
             self.scheduler_step()
-            # self.hook.show()
             self.wandb.log(
                 {"train_loss": tloss, "train_top1": ttop1, "val_top1": vtop1}, step=self.epoch
             )

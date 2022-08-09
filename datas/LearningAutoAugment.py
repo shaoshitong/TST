@@ -273,7 +273,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         indexs: [bs,]
         logits: [bs,num_classes]
         """
-        # momentum = epoch / (epoch + 1)
         momentum = 0.9
 
         self.buffer[indexs] = (
@@ -281,6 +280,7 @@ class LearningAutoAugment(transforms.AutoAugment):
             .mul_(momentum)
             .add_((1.0 - momentum) * weight.clone().detach().float())
         )
+
 
     def forward(self, img: Tensor, y, indexs, epoch):
         """
