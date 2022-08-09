@@ -14,7 +14,7 @@ from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from utils.augnet import BigImageAugNet, SmallImageAugNet
-from utils.dynamic_feature_distillation import DynamicFeatureDistillation
+from losses.ReviewKD import ReviewKD
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
 
@@ -105,12 +105,6 @@ class LearnDiversifyEnv(object):
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
         self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
-
-        if self.student_model.last_channel != self.teacher_model.last_channel:
-            self.teacher_expand = nn.Linear(self.teacher_model.last_channel,self.student_model.last_channel).cuda()
-        else:
-            self.teacher_expand = nn.Identity().cuda()
-
         self.p_logvar = (
             nn.Sequential(
                 nn.Linear(self.student_model.last_channel, 512),
@@ -128,7 +122,6 @@ class LearnDiversifyEnv(object):
                 nn.LeakyReLU(),
             )
         )
-
         self.p_mu = (
             nn.Sequential(
                 nn.Linear(self.student_model.last_channel, 512),
@@ -152,7 +145,6 @@ class LearnDiversifyEnv(object):
         self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
         self.optimizer.add_param_group({"params": self.p_mu.parameters()})
-        self.optimizer.add_param_group({"params": self.teacher_expand.parameters()})
         self.weights = yaml["weights"]
 
         # TODO: Natural Aumentation (i.e., AutoAugment, Cutmix, YOCO)
@@ -164,13 +156,12 @@ class LearnDiversifyEnv(object):
         self.augmented_ratio = yaml["augmented_ratio"]
 
         # TODO: DFD
-        self.dfd = DynamicFeatureDistillation(
-            features_size=yaml["dfd"]["feature_size"],
-            teacher_channels=yaml["dfd"]["teacher_channels"],
-            student_channels=yaml["dfd"]["student_channels"],
-            patch_size=yaml["dfd"]["patch_size"],
-            distill_mode=yaml["dfd"]["distill_mode"],
-            swinblocknumber=yaml["dfd"]["swinblocknumber"],
+        self.dfd = ReviewKD(
+            shapes=[1,8,16,32],
+            out_shapes=[1,8,16,32],
+            in_channels=[32,64,128,128],
+            out_channels=[32,64,128,128],
+            max_mid_channel=128,
         ).to(self.device)
 
         from utils.plthook import PltAboutHook
@@ -304,7 +295,7 @@ class LearnDiversifyEnv(object):
             student_tuple = student_tuple[:-1]
             teacher_tuple = teacher_tuple[:-1]
             student_avgpool = self.avgpool2d(student_lambda)
-            teacher_avgpool = self.teacher_expand(self.avgpool2d(teacher_lambda))
+            teacher_avgpool = self.avgpool2d(teacher_lambda)
             student_logvar = self.p_logvar(student_avgpool)
             student_mu = self.p_mu(student_avgpool)
             teacher_logvar = self.p_logvar(teacher_avgpool)
@@ -338,7 +329,8 @@ class LearnDiversifyEnv(object):
             ss_kd_loss = torch.Tensor([0.0]).cuda()
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss, ss_kd_loss = self.dfd(teacher_tuple, student_tuple, labels)
+                dfd_loss = self.dfd(student_tuple + [student_avgpool], teacher_tuple + [teacher_avgpool])
+                ss_kd_loss = torch.Tensor([0.0]).cuda()
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -349,7 +341,7 @@ class LearnDiversifyEnv(object):
         )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
-        nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
+        # nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
         # TODO: Second Stage
@@ -385,7 +377,7 @@ class LearnDiversifyEnv(object):
                 student_tuples = student_tuples[:-1]
                 teacher_tuples = teacher_tuples[:-1]
                 student_avgpool = self.avgpool2d(student_lambda)
-                teacher_avgpool = self.teacher_expand(self.avgpool2d(teacher_lambda))
+                teacher_avgpool = self.avgpool2d(teacher_lambda)
                 student_logvar = self.p_logvar(student_avgpool)
                 student_mu = self.p_mu(student_avgpool)
                 teacher_logvar = self.p_logvar(teacher_avgpool)
@@ -579,6 +571,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
+        self.teacher_model.eval()
         for i in range(self.total_epoch):
             ttop1, tloss, _ = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()

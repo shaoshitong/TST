@@ -74,6 +74,7 @@ class ReviewKD(nn.Module):
                  in_channels,
                  out_channels,
                  max_mid_channel):
+        super().__init__()
         self.shapes = shapes
         self.out_shapes = out_shapes
         in_channels = in_channels
@@ -111,5 +112,5 @@ class ReviewKD(nn.Module):
             features_teacher[-1].unsqueeze(-1).unsqueeze(-1)
         ]
         # losses
-        loss_reviewkd = (self.reviewkd_loss_weight * hcl_loss(results, features_teacher))
+        loss_reviewkd = hcl_loss(results, features_teacher)
         return loss_reviewkd
