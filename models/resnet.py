@@ -221,11 +221,12 @@ class ResNet(nn.Module):
         f3 = x
 
         x = self.avgpool(x)
+        f4 = x
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
         if is_feat:
-            return [f0, f1, f2, f3], x
+            return [f1, f2, f3, f3], x
         else:
             return x
 
