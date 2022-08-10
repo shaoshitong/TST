@@ -13,8 +13,8 @@ from datas.Augmentation import Augmentation
 from helpers.adjust_lr import adjust_lr
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from utils.augnet import BigImageAugNet, SmallImageAugNet
 from losses.ReviewKD import ReviewKD
+from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
 
@@ -157,10 +157,10 @@ class LearnDiversifyEnv(object):
 
         # TODO: DFD
         self.dfd = ReviewKD(
-            shapes=[1,8,16,32],
-            out_shapes=[1,8,16,32],
-            in_channels=[32,64,128,128],
-            out_channels=[32,64,128,128],
+            shapes=[1, 8, 16, 32],
+            out_shapes=[1, 8, 16, 32],
+            in_channels=[32, 64, 128, 128],
+            out_channels=[32, 64, 128, 128],
             max_mid_channel=128,
         ).to(self.device)
 
@@ -329,7 +329,9 @@ class LearnDiversifyEnv(object):
             ss_kd_loss = torch.Tensor([0.0]).cuda()
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(student_tuple + [student_avgpool], teacher_tuple + [teacher_avgpool])
+                dfd_loss = self.dfd(
+                    student_tuple + [student_avgpool], teacher_tuple + [teacher_avgpool]
+                )
                 ss_kd_loss = torch.Tensor([0.0]).cuda()
 
         # TODO: 3. Combine all Loss in stage one

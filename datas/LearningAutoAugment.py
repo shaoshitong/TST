@@ -281,7 +281,6 @@ class LearningAutoAugment(transforms.AutoAugment):
             .add_((1.0 - momentum) * weight.clone().detach().float())
         )
 
-
     def forward(self, img: Tensor, y, indexs, epoch):
         """
         Tensor -> Tensor (to translate)

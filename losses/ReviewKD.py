@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import math
-import pdb
 
 
 def hcl_loss(fstudent, fteacher):
@@ -34,9 +32,7 @@ class ABF(nn.Module):
             nn.BatchNorm2d(mid_channel),
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(
-                mid_channel, out_channel, kernel_size=3, stride=1, padding=1, bias=False
-            ),
+            nn.Conv2d(mid_channel, out_channel, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(out_channel),
         )
         if fuse:
@@ -68,12 +64,7 @@ class ABF(nn.Module):
 
 
 class ReviewKD(nn.Module):
-    def __init__(self,
-                 shapes,
-                 out_shapes,
-                 in_channels,
-                 out_channels,
-                 max_mid_channel):
+    def __init__(self, shapes, out_shapes, in_channels, out_channels, max_mid_channel):
         super().__init__()
         self.shapes = shapes
         self.out_shapes = out_shapes
@@ -96,15 +87,13 @@ class ReviewKD(nn.Module):
 
     def forward(self, features_student, features_teacher):
         # get features
-        x = features_student[:-1] + [
-            features_student[-1].unsqueeze(-1).unsqueeze(-1)
-        ]
+        x = features_student[:-1] + [features_student[-1].unsqueeze(-1).unsqueeze(-1)]
         x = x[::-1]
         results = []
         out_features, res_features = self.abfs[0](x[0], out_shape=self.out_shapes[0])
         results.append(out_features)
         for features, abf, shape, out_shape in zip(
-                x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
+            x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
         ):
             out_features, res_features = abf(features, res_features, shape, out_shape)
             results.insert(0, out_features)

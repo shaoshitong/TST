@@ -107,7 +107,9 @@ class LearnDiversifyEnv(object):
         self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
 
         if self.student_model.last_channel != self.teacher_model.last_channel:
-            self.teacher_expand = nn.Linear(self.teacher_model.last_channel,self.student_model.last_channel).cuda()
+            self.teacher_expand = nn.Linear(
+                self.teacher_model.last_channel, self.student_model.last_channel
+            ).cuda()
         else:
             self.teacher_expand = nn.Identity().cuda()
 
@@ -333,19 +335,14 @@ class LearnDiversifyEnv(object):
             likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
 
         # TODO: 3 DFD Loss
-        if self.weights[3] == 0:
-            dfd_loss = torch.Tensor([0.0]).cuda()
-            ss_kd_loss = torch.Tensor([0.0]).cuda()
-        else:
-            with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss, ss_kd_loss = self.dfd(teacher_tuple, student_tuple, labels)
+        with torch.cuda.amp.autocast(enabled=True):
+            dfd_loss = self.dfd(teacher_tuple, student_tuple, labels)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
             self.weights[0] * vanilla_kd_loss
             + self.weights[1] * likeli_loss
             + self.weights[2] * dfd_loss
-            + self.weights[3] * ss_kd_loss
         )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
@@ -425,21 +422,14 @@ class LearnDiversifyEnv(object):
             task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
 
             # TODO: 4 negative dfd loss
-
-            if self.weights[3] == 0:
-                ne_dfd_loss = torch.Tensor([0.0]).cuda()
-                ne_ss_kd_loss = torch.Tensor([0.0]).cuda()
-            else:
-                with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss, ne_ss_kd_loss = self.dfd(teacher_tuples, student_tuples, labels)
-                    ne_dfd_loss, ne_ss_kd_loss = -0.8 * ne_dfd_loss, -0.8 * ne_ss_kd_loss
+            with torch.cuda.amp.autocast(enabled=True):
+                ne_dfd_loss = self.dfd(teacher_tuples, student_tuples, labels) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
-                self.weights[4] * ne_ss_kd_loss
-                + self.weights[5] * ne_dfd_loss
-                + self.weights[6] * club_loss
-                + self.weights[7] * task_loss
+                +self.weights[3] * ne_dfd_loss
+                + self.weights[4] * club_loss
+                + self.weights[5] * task_loss
             )
 
             # TODO: update params
@@ -452,12 +442,10 @@ class LearnDiversifyEnv(object):
             ne_dfd_loss = torch.Tensor([0.0]).cuda()
             club_loss = torch.Tensor([0.0]).cuda()
             task_loss = torch.Tensor([0.0]).cuda()
-            ne_ss_kd_loss = torch.Tensor([0.0]).cuda()
             loss_2 = (
-                self.weights[4] * ne_ss_kd_loss
-                + self.weights[5] * ne_dfd_loss
-                + self.weights[6] * club_loss
-                + self.weights[7] * task_loss
+                +self.weights[3] * ne_dfd_loss
+                + self.weights[4] * club_loss
+                + self.weights[5] * task_loss
             )
 
         # TODO: Compute top1 and top5
@@ -475,8 +463,6 @@ class LearnDiversifyEnv(object):
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
             dfd_loss.cpu().item(),
-            ss_kd_loss.cpu().item(),
-            ne_ss_kd_loss.cpu().item(),
             ne_dfd_loss.cpu().item(),
             likeli_loss.cpu().item(),
             club_loss.cpu().item(),
@@ -507,8 +493,6 @@ class LearnDiversifyEnv(object):
                 top1,
                 vanilla_kd_loss,
                 dfd_loss,
-                ss_kd_loss,
-                ne_ss_kd_loss,
                 ne_dfd_loss,
                 likeli_loss,
                 club_loss,
@@ -519,8 +503,6 @@ class LearnDiversifyEnv(object):
                     "top1": top1,
                     "vanilla_kd_loss": vanilla_kd_loss,
                     "dfd_loss": dfd_loss,
-                    "ss_kd_loss": ss_kd_loss,
-                    "ne_ss_kd_loss": ne_ss_kd_loss,
                     "ne_dfd_loss": ne_dfd_loss,
                     "likeli_loss": likeli_loss,
                     "club_loss": club_loss,
