@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from timm.models.layers import DropPath
+from torch.autograd import Variable
 
 from utils.cka import kernel_CKA, linear_CKA
 
@@ -391,6 +392,99 @@ class LayerNorm2d(nn.LayerNorm):
             return x
 
 
+class ShakeDropFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, training=True, p_drop=0.5, alpha_range=[-1, 1]):
+        if training:
+            gate = torch.FloatTensor([0]).bernoulli_(1 - p_drop).to(x.device)
+            ctx.save_for_backward(gate)
+            if gate.item() == 0:
+                alpha = torch.FloatTensor(x.size(0)).uniform_(*alpha_range).to(x.device)
+                alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x)
+                return alpha * x
+            else:
+                return x
+        else:
+            return (1 - p_drop) * x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        gate = ctx.saved_tensors[0]
+        if gate.item() == 0:
+            beta = torch.FloatTensor(grad_output.size(0)).uniform_(0, 1).to(grad_output.device)
+            beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
+            beta = Variable(beta)
+            return beta * grad_output, None, None, None
+        else:
+            return grad_output, None, None, None
+
+
+class ShakeDrop(nn.Module):
+    def __init__(self, p_drop=0.5, alpha_range=[-1, 1]):
+        super(ShakeDrop, self).__init__()
+        self.p_drop = p_drop
+        self.alpha_range = alpha_range
+
+    def forward(self, x):
+        return ShakeDropFunction.apply(x, self.training, self.p_drop, self.alpha_range)
+
+
+class Bottleneck(nn.Module):
+    outchannel_ratio = 1
+
+    def __init__(self, inplanes, planes, stride=1, p_shakedrop=1.0):
+        super(Bottleneck, self).__init__()
+        self.bn1 = nn.BatchNorm2d(inplanes)
+        self.conv1 = (
+            nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        )
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = (
+            nn.Conv2d(planes, (planes * 1), kernel_size=3, stride=stride, padding=1, bias=False)
+        )
+        self.bn3 = nn.BatchNorm2d((planes * 1))
+        self.conv3 = (
+            nn.Conv2d((planes * 1), planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
+        )
+        self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
+        self.relu = nn.ReLU(inplace=True)
+        self.stride = stride
+        self.shake_drop = ShakeDrop(p_shakedrop)
+
+    def forward(self, x):
+
+        out = self.bn1(x)
+        out = self.conv1(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn3(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn4(out)
+        out = self.shake_drop(out)
+        shortcut = x
+        featuremap_size = out.size()[2:4]
+        batch_size = out.size()[0]
+        residual_channel = out.size()[1]
+        shortcut_channel = shortcut.size()[1]
+
+        if residual_channel != shortcut_channel:
+            padding = torch.autograd.Variable(
+                torch.FloatTensor(
+                    batch_size,
+                    residual_channel - shortcut_channel,
+                    featuremap_size[0],
+                    featuremap_size[1],
+                ).fill_(0)
+            ).to(x.device)
+            out = out + torch.cat((shortcut, padding), 1)
+        else:
+            out = out + shortcut
+
+        return out
+
+
 class DynamicFeatureDistillation(nn.Module):
     def __init__(
             self,
@@ -401,11 +495,14 @@ class DynamicFeatureDistillation(nn.Module):
             swinblocknumber=[4, 3, 2],
             distill_mode="all",
             num_classes=100,
+            mode="conv",
     ):
         """
         This dynamic knowledge distillation requires that
         the student and instructor resolutions are aligne
         d, but does not require channel alignment.
+
+        mode Str, 'conv' or 'swin'
         """
         super(DynamicFeatureDistillation, self).__init__()
         assert len(features_size) == len(teacher_channels) and len(teacher_channels) == len(
@@ -426,6 +523,9 @@ class DynamicFeatureDistillation(nn.Module):
         else:
             distill_number = 0
         self.distill_number = distill_number
+
+        norm = LayerNorm2d if mode == "swin" else nn.BatchNorm2d
+        self.mode = mode
         # TODO: build first embedding conv layer
 
         self.teacher_first_conv_embeddings = nn.ModuleList([])
@@ -442,7 +542,7 @@ class DynamicFeatureDistillation(nn.Module):
                     stride=(patch_size, patch_size),
                     bias=False,
                 ),
-                LayerNorm2d(s_channel * patch_size * patch_size),
+                norm(s_channel * patch_size * patch_size),
             )
             self.teacher_first_conv_embeddings.append(conv_layer)
         self.student_first_conv_embeddings = nn.ModuleList([])
@@ -459,7 +559,7 @@ class DynamicFeatureDistillation(nn.Module):
                     stride=(patch_size, patch_size),
                     bias=False,
                 ),
-                LayerNorm2d(s_channel * patch_size * patch_size),
+                norm(s_channel * patch_size * patch_size),
             )
             self.student_first_conv_embeddings.append(conv_layer)
 
@@ -481,7 +581,7 @@ class DynamicFeatureDistillation(nn.Module):
                         input_resolution=(size, size),
                         drop_path=0.2,
                         shift_size=0 if (i % 2 == 1) else patch_size // 2,
-                    ),
+                    ) if mode == "swin" else Bottleneck(s_channel, s_channel)
                 )
             ite += 1
             self.vit_encoder1_embeddings.append(vit_embedding)
@@ -502,7 +602,7 @@ class DynamicFeatureDistillation(nn.Module):
                         input_resolution=(size, size),
                         drop_path=0.2,
                         shift_size=0 if (i % 2 == 1) else patch_size // 2,
-                    ),
+                    ) if mode == "swin" else Bottleneck(s_channel, s_channel)
                 )
             ite += 1
             self.vit_encoder2_embeddings.append(vit_embedding)
@@ -525,7 +625,7 @@ class DynamicFeatureDistillation(nn.Module):
                         input_resolution=(size, size),
                         drop_path=0.2,
                         shift_size=0 if (i % 2 == 1) else patch_size // 2,
-                    ),
+                    ) if mode == "swin" else Bottleneck(s_channel, s_channel)
                 )
             ite += 1
             self.vit_decoder_embeddings.append(vit_embedding)
@@ -537,7 +637,10 @@ class DynamicFeatureDistillation(nn.Module):
                 teacher_channels[distill_number:],
         ):
             self.student_unembedding.append(
-                nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False)
+                nn.Sequential(
+                    nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False),
+                    norm(t_channel)
+                              )
             )
 
         self.res_turn = nn.ModuleList(
@@ -547,10 +650,10 @@ class DynamicFeatureDistillation(nn.Module):
                                                   , student_channels[distill_number:][:-1])
             ])
         self.student_bns2 = nn.ModuleList(
-            [LayerNorm2d(s_channel) for s_channel in student_channels[distill_number:]]
+            [norm(s_channel) for s_channel in student_channels[distill_number:]]
         )
         self.teacher_bns2 = nn.ModuleList(
-            [LayerNorm2d(t_channel) for t_channel in teacher_channels[distill_number:]]
+            [norm(t_channel) for t_channel in teacher_channels[distill_number:]]
         )
         self.student_fcs = nn.ModuleList(
             [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
@@ -586,9 +689,11 @@ class DynamicFeatureDistillation(nn.Module):
         Support both student and teacher2's feature map forward communication here
         """
         b, c, h, w = feature_map.shape
-        feature_map = rearrange(feature_map, "b c h w -> b (h w) c")
+        if self.mode == "swin":
+            feature_map = rearrange(feature_map, "b c h w -> b (h w) c")
         feature_map = vit_embedding(feature_map)
-        feature_map = rearrange(feature_map, "b (h w) c -> b c h w", h=h, w=w)
+        if self.mode == "swin":
+            feature_map = rearrange(feature_map, "b (h w) c -> b c h w", h=h, w=w)
         return feature_map
 
     def all_feature_map_vit_forward(self, feature_maps, vit_embeddings):
@@ -666,7 +771,7 @@ class DynamicFeatureDistillation(nn.Module):
                 teacher_feature_maps[::-1], student_feature_maps[::-1]
         ):
             h, w = teacher_feature_map.shape[-2], teacher_feature_map.shape[-1]
-            if ite>0:
+            if ite > 0:
                 res_feature_map = [
                     self.res_turn[-ite](F.interpolate(res_feature_map[0], size=(h, w), mode="nearest")),
                     self.res_turn[-ite](F.interpolate(res_feature_map[1], size=(h, w), mode="nearest")),
@@ -700,8 +805,6 @@ class DynamicFeatureDistillation(nn.Module):
             teacher_feature_maps, self.teacher_first_conv_embeddings
         )
 
-        label_teacher_feature_maps = new_teacher_feature_maps
-
         # TODO: Go for a merge operation like reviewkd
         new_teacher_feature_maps, student_feature_maps = self.review_knowledge(
             new_teacher_feature_maps, student_feature_maps
@@ -733,17 +836,15 @@ class DynamicFeatureDistillation(nn.Module):
             )
             mix_student_feature_maps.append(mix_student_feature_map)
 
-        student_feature_maps = self.all_feature_map_vit_forward(
-            mix_student_feature_maps, self.vit_decoder_embeddings
-        )
+        student_feature_maps = self.all_feature_map_vit_forward(mix_student_feature_maps, self.vit_decoder_embeddings)
+        for i, unembedding in enumerate(self.student_unembedding):
+            student_feature_maps[i] = unembedding(student_feature_maps[i])
 
         dfd_loss = torch.Tensor([0.0]).cuda()
-
         for teacher_feature_map, student_feature_map in zip(
-                label_teacher_feature_maps, student_feature_maps
+                teacher_feature_maps, student_feature_maps
         ):
             dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
-
         return dfd_loss
 
 # if __name__ == "__main__":

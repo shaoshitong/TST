@@ -13,6 +13,10 @@ def load_model(model_dict, model):
     print(
         f"the prune number is {round((len(model_state_dict.keys())-len(pretrained_dict.keys()))*100/len(model_state_dict.keys()),3)}%"
     )
+    print("missing keys:")
+    for key in model_state_dict.keys():
+        if key not in pretrained_dict:
+            print(key)
     model_state_dict.update(pretrained_dict)
     model.load_state_dict(model_state_dict)
     return model
@@ -25,11 +29,10 @@ def load_model_from_url(model, url, local_ckpt_path="./checkpoints/teacher2"):
         progress=True,
         map_location=torch.device("cpu"),
     )
-    print(state_dict.keys())
     if "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
     elif "model" in state_dict:
         state_dict = state_dict["model"]
-
-    model = load_model(state_dict, model)
+    model.load_state_dict(state_dict)
+    # model = load_model(state_dict, model)
     return model
