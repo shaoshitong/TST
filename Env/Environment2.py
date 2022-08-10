@@ -335,8 +335,11 @@ class LearnDiversifyEnv(object):
             likeli_loss += -self.Loglikeli(new_mu, new_logvar, new_embedding)
 
         # TODO: 3 DFD Loss
-        with torch.cuda.amp.autocast(enabled=True):
-            dfd_loss = self.dfd(teacher_tuple, student_tuple, labels)
+        if self.weights[2]==0:
+            dfd_loss = torch.Tensor([0.0]).cuda()
+        else:
+            with torch.cuda.amp.autocast(enabled=True):
+                dfd_loss = self.dfd(teacher_tuple, student_tuple, labels)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -422,8 +425,11 @@ class LearnDiversifyEnv(object):
             task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
 
             # TODO: 4 negative dfd loss
-            with torch.cuda.amp.autocast(enabled=True):
-                ne_dfd_loss = self.dfd(teacher_tuples, student_tuples, labels) * 0.8
+            if self.weights[3] == 0:
+                ne_dfd_loss = torch.Tensor([0.0]).cuda()
+            else:
+                with torch.cuda.amp.autocast(enabled=True):
+                    ne_dfd_loss = self.dfd(teacher_tuples, student_tuples, labels) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
