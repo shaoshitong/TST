@@ -649,11 +649,11 @@ class DynamicFeatureDistillation(nn.Module):
                 for s_channel1, s_channel2 in zip(student_channels[distill_number:][1:]
                                                   , student_channels[distill_number:][:-1])
             ])
-        self.student_bns2 = nn.ModuleList(
+        self.student_bns = nn.ModuleList(
             [norm(s_channel) for s_channel in student_channels[distill_number:]]
         )
-        self.teacher_bns2 = nn.ModuleList(
-            [norm(t_channel) for t_channel in teacher_channels[distill_number:]]
+        self.teacher_bns = nn.ModuleList(
+            [norm(s_channel) for s_channel in student_channels[distill_number:]]
         )
         self.student_fcs = nn.ModuleList(
             [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
@@ -759,7 +759,7 @@ class DynamicFeatureDistillation(nn.Module):
                 reduction="batchmean",
             )
             b = self.cross(teacher_logit, targets)
-            kl_loss += a + b
+            kl_loss += (a + b)
         return kl_loss
 
     def review_knowledge(self, teacher_feature_maps, student_feature_maps):
@@ -817,13 +817,14 @@ class DynamicFeatureDistillation(nn.Module):
             new_teacher_feature_maps, self.vit_encoder2_embeddings
         )
 
-        # student_feature_maps = self.bn_forward(student_feature_maps, self.student_bns)
-        # teacher_feature_maps = self.bn_forward(teacher_feature_maps, self.teacher_bns)
-        #
-        # student_feature_logits = self.fc_forward(student_feature_maps, self.student_fcs)
-        # teacher_feature_logits = self.fc_forward(teacher_feature_maps, self.teacher_fcs)
-        #
-        # kl_loss = self.kl_loss(teacher_feature_logits, student_feature_logits, targets)
+        bn_student_feature_maps = self.bn_forward(student_feature_maps, self.student_bns)
+        bn_teacher_feature_maps = self.bn_forward(new_teacher_feature_maps, self.teacher_bns)
+
+        student_feature_logits = self.fc_forward(bn_student_feature_maps, self.student_fcs)
+        teacher_feature_logits = self.fc_forward(bn_teacher_feature_maps, self.teacher_fcs)
+
+        kl_loss = self.kl_loss(teacher_feature_logits, student_feature_logits, targets)
+
         ratios = self.compute_ratio(new_teacher_feature_maps, student_feature_maps)
         self.ratio_update(ratios)
         ratios = self.ratios
@@ -845,8 +846,7 @@ class DynamicFeatureDistillation(nn.Module):
                 teacher_feature_maps, student_feature_maps
         ):
             dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
-        return dfd_loss
-
+        return dfd_loss + kl_loss * 0.2
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),
 #                                      student_channels=(8, 16, 32)).cuda()

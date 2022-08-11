@@ -343,7 +343,6 @@ class LearnDiversifyEnv(object):
         )
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
-        # nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
         # TODO: Second Stage
