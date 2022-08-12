@@ -54,7 +54,7 @@ log_each:
   100
 optimizer:
   lr:
-    0.1
+    0.05
   type:
     SGD
   weight_decay:

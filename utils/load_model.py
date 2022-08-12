@@ -33,6 +33,6 @@ def load_model_from_url(model, url, local_ckpt_path="./checkpoints/teacher2"):
         state_dict = state_dict["state_dict"]
     elif "model" in state_dict:
         state_dict = state_dict["model"]
-    # model.load_state_dict(state_dict)
-    model = load_model(state_dict, model)
+    model.load_state_dict(state_dict,strict=True)
+    # model = load_model(state_dict, model)
     return model
