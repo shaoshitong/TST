@@ -120,7 +120,7 @@ class ShuffleNet(nn.Module):
         out = self.linear(out)
 
         if is_feat:
-            return [f1, f2, f3], out
+            return [f1, f2, f3, f3], out
         else:
             return out
 

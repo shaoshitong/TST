@@ -2,13 +2,13 @@
 data:
   Original_DataLoader_C100
 tarch:
-  resnet110
+  resnet32x4
 arch:
-  resnet20
+  ShuffleV1
 loss:
   KDloss
 tcheckpoint:
-  resnet110.pth
+  resnet32x4.pth
 checkpoint:
 
 LAA:
@@ -26,12 +26,12 @@ img_size:
 sc_lr:
   0.01
 weights:
-  - 0.5
+  - 1
   - 1
   - 0
   - 0
   - 1
-  - 0.5
+  - 1
 augnettype:
   SmallImageAugNet
 data_path:
