@@ -4,7 +4,7 @@ data:
 tarch:
   resnet32x4
 arch:
-  ShuffleV1
+  resnet8x4
 loss:
   KDloss
 tcheckpoint:
@@ -24,7 +24,7 @@ augmentation_mode:
 img_size:
   32
 sc_lr:
-  0.002
+  0.01
 weights:
   - 1
   - 1
@@ -52,7 +52,7 @@ log_each:
   100
 optimizer:
   lr:
-    0.01
+    0.05
   type:
     SGD
   weight_decay:
