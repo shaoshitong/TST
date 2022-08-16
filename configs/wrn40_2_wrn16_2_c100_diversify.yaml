@@ -28,7 +28,7 @@ sc_lr:
 weights:
   - 1
   - 0
-  - 5
+  - 1
   - 0
   - 0
   - 0
@@ -52,7 +52,7 @@ log_each:
   100
 optimizer:
   lr:
-    0.05
+    0.1
   type:
     SGD
   weight_decay:

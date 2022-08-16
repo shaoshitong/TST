@@ -776,6 +776,14 @@ class DynamicFeatureDistillation(nn.Module):
                     self.res_turn[-ite](F.interpolate(res_feature_map[0], size=(h, w), mode="nearest")),
                     self.res_turn[-ite](F.interpolate(res_feature_map[1], size=(h, w), mode="nearest")),
                 ]
+
+
+            # CKA1 = linear_CKA(self.flatten(student_feature_map), self.flatten(res_feature_map[0])).item()
+            # CKA2 = linear_CKA(self.flatten(teacher_feature_map), self.flatten(res_feature_map[1])).item()
+            # CKA1 = CKA1 / (CKA1 + 1)
+            # CKA2 = CKA2 / (CKA2 + 1) # left : resnet32x4-resnet8x4 right: wrn dfd
+            # new_teacher_feature_map = self.mix_student_and_teacher(teacher_feature_map,res_feature_map[0],CKA1)
+            # new_student_feature_map = self.mix_student_and_teacher(student_feature_map,res_feature_map[1],CKA2)
             new_teacher_feature_map = (teacher_feature_map + res_feature_map[0]) / 2
             new_student_feature_map = (student_feature_map + res_feature_map[1]) / 2
             res_feature_map = [new_teacher_feature_map, new_student_feature_map]
@@ -805,6 +813,8 @@ class DynamicFeatureDistillation(nn.Module):
             teacher_feature_maps, self.teacher_first_conv_embeddings
         )
 
+        alignment_teacher_feature_maps = new_teacher_feature_maps
+
         # TODO: Go for a merge operation like reviewkd
         new_teacher_feature_maps, student_feature_maps = self.review_knowledge(
             new_teacher_feature_maps, student_feature_maps
@@ -830,12 +840,12 @@ class DynamicFeatureDistillation(nn.Module):
             mix_student_feature_maps.append(mix_student_feature_map)
 
         student_feature_maps = self.all_feature_map_vit_forward(mix_student_feature_maps, self.vit_decoder_embeddings)
-        for i, unembedding in enumerate(self.student_unembedding):
-            student_feature_maps[i] = unembedding(student_feature_maps[i])
+        # for i, unembedding in enumerate(self.student_unembedding):
+        #     student_feature_maps[i] = unembedding(student_feature_maps[i])
 
         dfd_loss = torch.Tensor([0.0]).cuda()
         for teacher_feature_map, student_feature_map in zip(
-                teacher_feature_maps, student_feature_maps
+                alignment_teacher_feature_maps, student_feature_maps
         ):
             dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
         return dfd_loss

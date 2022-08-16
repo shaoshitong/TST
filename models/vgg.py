@@ -6,7 +6,7 @@ import math
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ["vgg13_bn_aux", "vgg13_bn", "vgg13_bn_spkd", "vgg13_bn_crd"]
+__all__ = ["vgg13_bn_aux", "vgg13_bn", "vgg13_bn_spkd", "vgg13_bn_crd","vgg8_bn"]
 
 
 model_urls = {

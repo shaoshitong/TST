@@ -2,13 +2,13 @@
 data:
   Original_DataLoader_C100
 tarch:
-  resnet32x4
+  vgg13_bn
 arch:
-  resnet8x4
+  vgg8_bn
 loss:
   KDloss
 tcheckpoint:
-  resnet32x4.pth
+  vgg13_bn.pth
 checkpoint:
 
 LAA:
