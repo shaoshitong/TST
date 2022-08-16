@@ -798,11 +798,6 @@ class DynamicFeatureDistillation(nn.Module):
         student_feature_maps = student_feature_maps[self.distill_number:]
 
         # TODO: Only original sample
-        # b = teacher_feature_maps[0].shape[0] // 2
-        # teacher_feature_maps = [i[b:] for i in teacher_feature_maps]
-        # student_feature_maps = [i[b:] for i in student_feature_maps]
-        # targets = targets[b:]
-
         assert isinstance(teacher_feature_maps, list) and isinstance(student_feature_maps, list)
         assert len(teacher_feature_maps) == len(student_feature_maps)
 
@@ -838,16 +833,17 @@ class DynamicFeatureDistillation(nn.Module):
                 new_teacher_feature_map, student_feature_map, ratio=ratio
             )
             mix_student_feature_maps.append(mix_student_feature_map)
-
         student_feature_maps = self.all_feature_map_vit_forward(mix_student_feature_maps, self.vit_decoder_embeddings)
-        # for i, unembedding in enumerate(self.student_unembedding):
-        #     student_feature_maps[i] = unembedding(student_feature_maps[i])
 
         dfd_loss = torch.Tensor([0.0]).cuda()
         for teacher_feature_map, student_feature_map in zip(
                 alignment_teacher_feature_maps, student_feature_maps
         ):
-            dfd_loss += F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
+            b,c,h,w=student_feature_map.shape
+            CKA = linear_CKA(self.flatten(teacher_feature_map[:b//2]),self.flatten(teacher_feature_map[b//2:])).item() * 2
+            loss1 = F.mse_loss(teacher_feature_map[:b//2],student_feature_map[:b//2],reduction="mean") * CKA
+            loss2 = F.mse_loss(teacher_feature_map[b//2:],student_feature_map[b//2:],reduction="mean")
+            dfd_loss += (loss1+loss2)/2
         return dfd_loss
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),

@@ -33,6 +33,7 @@ def linear_HSIC(X, Y):
     return torch.sum(centering(L_X) * centering(L_Y))
 
 
+@torch.no_grad()
 def linear_CKA(X, Y):
     X = X / X.norm(p=2, dim=1, keepdim=True)
     Y = Y / Y.norm(p=2, dim=1, keepdim=True)
@@ -42,6 +43,7 @@ def linear_CKA(X, Y):
     return hsic / (var1 * var2)
 
 
+@torch.no_grad()
 def kernel_CKA(X, Y, sigma=None):
     X = X / X.norm(p=2, dim=1, keepdim=True)
     Y = Y / Y.norm(p=2, dim=1, keepdim=True)

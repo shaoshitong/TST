@@ -109,7 +109,7 @@ class MobileNetV2(nn.Module):
         # building first layer
         assert input_size % 32 == 0
         input_channel = int(32 * width_mult)
-        self.conv1 = conv_bn(3, input_channel, 1)
+        self.conv1 = conv_bn(3, input_channel, 2)
 
         # building inverted residual blocks
         self.blocks = nn.ModuleList([])
