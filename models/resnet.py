@@ -20,6 +20,7 @@ __all__ = [
     "resnet8",
     "resnet8x4",
     "resnet20",
+    "resnet32",
     "resnet56",
     "resnet110",
     "resnet8_spkd",

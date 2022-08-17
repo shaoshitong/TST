@@ -485,6 +485,23 @@ class Bottleneck(nn.Module):
         return out
 
 
+def hcl_loss(fs, ft, cka=1):
+    n, c, h, w = fs.shape
+    loss = F.mse_loss(fs, ft, reduction="mean")
+    cnt = 1.0
+    tot = 1.0
+    for l in [4, 2, 1]:
+        if l >= h:
+            continue
+        tmpfs = F.adaptive_avg_pool2d(fs, (l, l))
+        tmpft = F.adaptive_avg_pool2d(ft, (l, l))
+        cnt /= 2.0
+        loss += F.mse_loss(tmpfs, tmpft, reduction="mean") * cnt * cka
+        tot += cnt
+    loss = loss / tot
+    return loss
+
+
 class DynamicFeatureDistillation(nn.Module):
     def __init__(
             self,
@@ -640,7 +657,7 @@ class DynamicFeatureDistillation(nn.Module):
                 nn.Sequential(
                     nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False),
                     norm(t_channel)
-                              )
+                )
             )
 
         self.res_turn = nn.ModuleList(
@@ -649,6 +666,19 @@ class DynamicFeatureDistillation(nn.Module):
                 for s_channel1, s_channel2 in zip(student_channels[distill_number:][1:]
                                                   , student_channels[distill_number:][:-1])
             ])
+        self.ABF_student = nn.ModuleList(
+            [
+                nn.Sequential(nn.Conv2d(2 * s_channel2, 2, (1, 1), (1, 1), (0, 0), bias=False),nn.Sigmoid())
+                for s_channel1, s_channel2 in zip(student_channels[distill_number:][1:]
+                                                  , student_channels[distill_number:][:-1])
+            ])
+        self.ABF_teacher = nn.ModuleList(
+            [
+                nn.Sequential(nn.Conv2d(2 * s_channel2, 2, (1, 1), (1, 1), (0, 0), bias=False), nn.Sigmoid())
+                for s_channel1, s_channel2 in zip(student_channels[distill_number:][1:]
+                                                  , student_channels[distill_number:][:-1])
+            ])
+
         self.student_bns = nn.ModuleList(
             [norm(s_channel) for s_channel in student_channels[distill_number:]]
         )
@@ -773,19 +803,22 @@ class DynamicFeatureDistillation(nn.Module):
             h, w = teacher_feature_map.shape[-2], teacher_feature_map.shape[-1]
             if ite > 0:
                 res_feature_map = [
-                    self.res_turn[-ite](F.interpolate(res_feature_map[0], size=(h, w), mode="nearest")),
-                    self.res_turn[-ite](F.interpolate(res_feature_map[1], size=(h, w), mode="nearest")),
+                        self.res_turn[-ite](F.interpolate(res_feature_map[0], size=(h, w), mode="nearest")),
+                        self.res_turn[-ite](F.interpolate(res_feature_map[1], size=(h, w), mode="nearest")),
                 ]
+            if ite > 0:
+                z = torch.cat([teacher_feature_map, res_feature_map[0]], dim=1)
+                z = self.ABF_teacher[-ite](z)
+                new_teacher_feature_map = teacher_feature_map * z[:, 0].view(z.shape[0], 1, h, w)\
+                                          +  res_feature_map[0] * z[:, 1].view(z.shape[0], 1, h, w)
 
-
-            # CKA1 = linear_CKA(self.flatten(student_feature_map), self.flatten(res_feature_map[0])).item()
-            # CKA2 = linear_CKA(self.flatten(teacher_feature_map), self.flatten(res_feature_map[1])).item()
-            # CKA1 = CKA1 / (CKA1 + 1)
-            # CKA2 = CKA2 / (CKA2 + 1) # left : resnet32x4-resnet8x4 right: wrn dfd
-            # new_teacher_feature_map = self.mix_student_and_teacher(teacher_feature_map,res_feature_map[0],CKA1)
-            # new_student_feature_map = self.mix_student_and_teacher(student_feature_map,res_feature_map[1],CKA2)
-            new_teacher_feature_map = (teacher_feature_map + res_feature_map[0]) / 2
-            new_student_feature_map = (student_feature_map + res_feature_map[1]) / 2
+                z = torch.cat([student_feature_map, res_feature_map[1]], dim=1)
+                z = self.ABF_student[-ite](z)
+                new_student_feature_map = student_feature_map * z[:, 0].view(z.shape[0], 1, h, w)\
+                                          +  res_feature_map[1] * z[:, 1].view(z.shape[0], 1, h, w)
+            else:
+                new_teacher_feature_map = (teacher_feature_map + res_feature_map[0]) / 2
+                new_student_feature_map = (student_feature_map + res_feature_map[1]) / 2
             res_feature_map = [new_teacher_feature_map, new_student_feature_map]
             new_teacher_feature_maps.append(new_teacher_feature_map)
             new_student_feature_maps.append(new_student_feature_map)
@@ -839,11 +872,12 @@ class DynamicFeatureDistillation(nn.Module):
         for teacher_feature_map, student_feature_map in zip(
                 alignment_teacher_feature_maps, student_feature_maps
         ):
-            b,c,h,w=student_feature_map.shape
-            CKA = linear_CKA(self.flatten(teacher_feature_map[:b//2]),self.flatten(teacher_feature_map[b//2:])).item() * 2
-            loss1 = F.mse_loss(teacher_feature_map[:b//2],student_feature_map[:b//2],reduction="mean") * CKA
-            loss2 = F.mse_loss(teacher_feature_map[b//2:],student_feature_map[b//2:],reduction="mean")
-            dfd_loss += (loss1+loss2)/2
+            b, c, h, w = student_feature_map.shape
+            CKA = linear_CKA(self.flatten(teacher_feature_map[:b // 2]),
+                             self.flatten(teacher_feature_map[b // 2:])).item() * 2
+            loss1 = F.mse_loss(teacher_feature_map[:b // 2], student_feature_map[:b // 2], reduction="mean") * CKA
+            loss2 = F.mse_loss(teacher_feature_map[b // 2:], student_feature_map[b // 2:], reduction="mean")
+            dfd_loss += (loss1 + loss2) / 2
         return dfd_loss
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),
