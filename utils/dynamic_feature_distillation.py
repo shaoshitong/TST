@@ -712,6 +712,7 @@ class DynamicFeatureDistillation(nn.Module):
         hard_mask = soft_mask > ratio
         hard_mask = hard_mask.expand(-1, -1, patch_size, patch_size, -1, -1)
         hard_mask = rearrange(hard_mask, "b c p q h w -> b c (p h) (q w)")
+        # return student_feature_map
         return torch.where(hard_mask, teacher_feature_map, student_feature_map)
 
     def vit_forward(self, feature_map, vit_embedding):
