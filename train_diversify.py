@@ -10,6 +10,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
+import torch.distributed as dist
+import torch.multiprocessing as mp
+import torch.utils.data.distributed
+from torch.nn.parallel import DistributedDataParallel as DDP
 from omegaconf import OmegaConf
 
 import wandb
@@ -27,6 +31,12 @@ parser.add_argument(
     type=str,
     default="./configs/wrn40_2_wrn16_2_c100_diversify.yaml",
     help="path to configuration file",
+)
+parser.add_argument(
+    "--cuda_devices",
+    type=str,
+    default="0",
+    help="data parallel training",
 )
 args = parser.parse_args()
 
@@ -62,22 +72,29 @@ def yaml_config_get(args):
     return conf
 
 
-if __name__ == "__main__":
-    yaml_config = yaml_config_get(args)
-    device = set_device()
-    torch.cuda.empty_cache()
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.fastest = True
-    set_random_seed(0)
-    wandb.init(project="RLDCD", entity="seushanshan")
-    if yaml_config["amp"]:
-        scaler = torch.cuda.amp.GradScaler()
-    tnet: nn.Module = getattr(models, yaml_config["tarch"])(
+def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
+    # TODO: NCCL  INIT
+    print("Use GPU: {} for training".format(gpu))
+    rank = 0  # 单机
+    dist_backend = "nccl"
+    rank = rank * ngpus_per_node + gpu
+    print("world_size:", world_size)
+    dist.init_process_group(
+        backend=dist_backend, init_method=dist_url, world_size=world_size, rank=rank
+    )
+    torch.cuda.set_device(gpu)
+    yaml_config["train_batch_size"] = int(yaml_config["train_batch_size"] / ngpus_per_node)
+    yaml_config["test_batch_size"] = int(yaml_config["test_batch_size"] / ngpus_per_node)
+
+    # TODO: LLA_DFD
+    if gpu==0:
+        wandb.init(project="LLA_DFD", entity="seushanshan")
+    tnet: nn.Module = torch.nn.DataParallel(getattr(models, yaml_config["tarch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda()
-    net: nn.Module = getattr(models, yaml_config["arch"])(
+    ).cuda(gpu),device_ids=[gpu])
+    net: nn.Module = DDP(getattr(models, yaml_config["arch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda()
+    ).cuda(gpu),device_ids=[gpu])
     ROOT = yaml_config["ckpt_root"]
     local_ckpt_path = yaml_config["local_ckpt_path"]
     if yaml_config["tcheckpoint"]:
@@ -85,7 +102,6 @@ if __name__ == "__main__":
         tnet = utils.load_model_from_url(tnet, tcheckpoint_path, local_ckpt_path)
     else:
         raise NotImplementedError("the teacher2's checkpoint file could not be found!")
-    optimizer_name = "torch.optim." + yaml_config["optimizer"]["type"]
     optimizer = getattr(torch.optim, yaml_config["optimizer"]["type"])(
         net.parameters(),
         lr=yaml_config["optimizer"]["lr"],
@@ -109,7 +125,8 @@ if __name__ == "__main__":
     criticion = getattr(losses, yaml_config["criticion"]["type"])(
         temperature=yaml_config["criticion"]["temperature"]
     )
-    wandb.config = yaml_config
+    if gpu==0:
+        wandb.config = yaml_config
     env = LearnDiversifyEnv(
         dataloader=trainloader,
         testloader=testloader,
@@ -119,6 +136,37 @@ if __name__ == "__main__":
         optimizer=optimizer,
         loss=criticion,
         yaml=yaml_config,
-        wandb=wandb,
+        wandb=wandb if gpu==0 else None,
+        gpu=gpu,
     )
     env.training_in_all_epoch()
+    dist.destroy_process_group()
+
+
+if __name__ == "__main__":
+    yaml_config = yaml_config_get(args)
+    device = set_device()
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.fastest = True
+    set_random_seed(0)
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_devices
+    os.environ["MASTER_ADDR"] = "127.0.0.1"  #
+    os.environ["MASTER_PORT"] = "8889"  #
+    world_size = 1
+    port_id = 10000 + np.random.randint(0, 1000)
+    dist_url = "tcp://127.0.0.1:" + str(port_id)
+    ngpus_per_node = torch.cuda.device_count()
+    world_size = ngpus_per_node * world_size
+    print("multiprocessing_distributed")
+    torch.multiprocessing.set_start_method("spawn")
+    mp.spawn(
+        main_worker,
+        nprocs=ngpus_per_node,
+        args=(
+            yaml_config,
+            ngpus_per_node,
+            world_size,
+            dist_url
+        ))
+

@@ -144,30 +144,20 @@ class SmallImageAugNet(nn.Module):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
         self.alpha = 1
+        if yaml['LAA']['augmentation_policy'] == "cifar10":
+            policy_type = AutoAugmentPolicy.CIFAR10
+        elif yaml['LAA']['augmentation_policy'] == "imagenet":
+            policy_type = AutoAugmentPolicy.IMAGENET
+        else:
+            raise NotImplementedError
         self.learningautoaugment = LearningAutoAugment(
-            policy=AutoAugmentPolicy.CIFAR10,
+            policy=policy_type,
             C=yaml["LAA"]["C"],
             H=yaml["LAA"]["H"],
             W=yaml["LAA"]["W"],
             p=yaml["LAA"]["p"],
             num_train_samples=num_train_samples,
         )
-        print(f"alpha is {self.alpha}")
-        self.noise_lv = nn.Parameter(torch.zeros(1))
-        self.shift_var = nn.Parameter(torch.empty(3, img_size, img_size))
-        nn.init.normal_(self.shift_var, 1, 0.1)
-        self.shift_mean = nn.Parameter(torch.zeros(3, img_size, img_size))
-        nn.init.normal_(self.shift_mean, 0, 0.1)
-        self.norm = nn.InstanceNorm2d(3)
-        self.color = nn.Conv2d(3, 3, 1).cuda()
-        self.tran = (
-            transforms.Compose(
-                [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
-            )
-            if yaml["augmentation_policy"] == "cifar10"
-            else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        )
-
     def forward(self, x, y, indexs, epoch):
         x, y = self.learningautoaugment(x, y, indexs, epoch)
         return x, y

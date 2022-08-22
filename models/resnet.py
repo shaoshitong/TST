@@ -213,7 +213,6 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)  # 32x32
-        f0 = x
 
         x = self.layer1(x)  # 32x32
         f1 = x
@@ -223,7 +222,6 @@ class ResNet(nn.Module):
         f3 = x
 
         x = self.avgpool(x)
-        f4 = x
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 

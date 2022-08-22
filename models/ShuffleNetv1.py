@@ -30,9 +30,7 @@ class Bottleneck(nn.Module):
 
         mid_planes = int(out_planes / 4)
         g = 1 if in_planes == 24 else groups
-        self.conv1 = nn.Conv2d(
-            in_planes, mid_planes, kernel_size=1, groups=g, bias=False
-        )
+        self.conv1 = nn.Conv2d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
         self.bn1 = nn.BatchNorm2d(mid_planes)
         self.shuffle1 = ShuffleBlock(groups=g)
         self.conv2 = nn.Conv2d(
@@ -45,9 +43,7 @@ class Bottleneck(nn.Module):
             bias=False,
         )
         self.bn2 = nn.BatchNorm2d(mid_planes)
-        self.conv3 = nn.Conv2d(
-            mid_planes, out_planes, kernel_size=1, groups=groups, bias=False
-        )
+        self.conv3 = nn.Conv2d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
         self.bn3 = nn.BatchNorm2d(out_planes)
 
         self.shortcut = nn.Sequential()
@@ -112,11 +108,9 @@ class ShuffleNet(nn.Module):
         return feat_m
 
     def get_bn_before_relu(self):
-        raise NotImplementedError(
-            'ShuffleNet currently is not supported for "Overhaul" teacher'
-        )
+        raise NotImplementedError('ShuffleNet currently is not supported for "Overhaul" teacher')
 
-    def forward(self,x, is_feat=False):
+    def forward(self, x, is_feat=False):
         out = F.relu(self.bn1(self.conv1(x)))
         f0 = out
         out, f1_pre = self.layer1(out)
@@ -127,10 +121,9 @@ class ShuffleNet(nn.Module):
         f3 = out
         out = F.avg_pool2d(out, 4)
         out = out.reshape(out.size(0), -1)
-        f4 = out
         out = self.linear(out)
         if is_feat:
-            return [f0 , f1, f2, f3], out
+            return [f0, f1, f2, f3], out
         else:
             return out
 

@@ -16,11 +16,8 @@ LAA:
   H: 32
   W: 32
   p: 0.25
-augmentation_policy:
-  cifar10
-augmentation_mode:
-  - autoaugment
-#  - cutmix
+  augmentation_policy:
+    cifar10
 img_size:
   32
 sc_lr:
@@ -115,6 +112,8 @@ dfd:
     - 2
     - 2
     - 2
+  mode:
+    conv
 only_stage_one:
   True
 ckpt_root:

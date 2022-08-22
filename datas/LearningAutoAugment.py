@@ -92,12 +92,12 @@ class Flow_Attention(nn.Module):
         source_competition = torch.softmax(conserved_source, dim=-1) * float(keys.shape[2])
         # (4) dot product
         x = (
-            self.dot_product(
-                queries * sink_incoming[:, :, :, None],  # for value normalization
-                keys,
-                values * source_competition[:, :, :, None],
-            )  # competition
-            * sink_allocation[:, :, :, None]
+                self.dot_product(
+                    queries * sink_incoming[:, :, :, None],  # for value normalization
+                    keys,
+                    values * source_competition[:, :, :, None],
+                )  # competition
+                * sink_allocation[:, :, :, None]
         ).transpose(
             1, 2
         )  # allocation
@@ -109,11 +109,11 @@ class Flow_Attention(nn.Module):
 
 
 def _apply_op(
-    img: Tensor,
-    op_name: str,
-    magnitude: float,
-    interpolation: InterpolationMode,
-    fill: Optional[List[float]],
+        img: Tensor,
+        op_name: str,
+        magnitude: float,
+        interpolation: InterpolationMode,
+        fill: Optional[List[float]],
 ):
     if op_name == "ShearX":
         # magnitude should be arctan(magnitude)
@@ -130,7 +130,6 @@ def _apply_op(
             shear=[math.degrees(math.atan(magnitude)), 0.0],
             interpolation=interpolation,
             fill=fill,
-            center=[0, 0],
         )
     elif op_name == "ShearY":
         # magnitude should be arctan(magnitude)
@@ -143,7 +142,6 @@ def _apply_op(
             shear=[0.0, math.degrees(math.atan(magnitude))],
             interpolation=interpolation,
             fill=fill,
-            center=[0, 0],
         )
     elif op_name == "TranslateX":
         img = F.affine(
@@ -191,18 +189,26 @@ def _apply_op(
         raise ValueError(f"The provided operator {op_name} is not recognized.")
     return img
 
-
+class Reshape(nn.Module):
+    def __init__(self,C,H,W,P):
+        super(Reshape, self).__init__()
+        self.conv=nn.Conv2d(C, C, (7, 7), (7, 7), bias=False,groups=C)
+        self.P=P
+    def forward(self,x):
+        p,b,c,h,w=x.shape
+        x = einops.rearrange(self.conv(einops.rearrange(x,"p b c h w -> (p b) c h w")),"(p b) c h w -> b (p c h w)",p=p)
+        return x
 class LearningAutoAugment(transforms.AutoAugment):
     def __init__(
-        self,
-        policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
-        interpolation: InterpolationMode = InterpolationMode.NEAREST,
-        fill: Optional[List[float]] = None,
-        p=0.25,
-        C=3,
-        H=224,
-        W=224,
-        num_train_samples=50000,
+            self,
+            policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
+            interpolation: InterpolationMode = InterpolationMode.NEAREST,
+            fill: Optional[List[float]] = None,
+            p=0.25,
+            C=3,
+            H=224,
+            W=224,
+            num_train_samples=50000,
     ):
         super(LearningAutoAugment, self).__init__(
             policy,
@@ -227,22 +233,6 @@ class LearningAutoAugment(transforms.AutoAugment):
                 self.policies_set.append(copy.deepcopy(second_policies))
                 all_policies_set.add(second_policies[0])
         self.policies = list(self.policies_set)
-        # self.policies = [
-        #     ("AutoContrast", p, None),
-        #     ("Contrast", p, 3),
-        #     ("Posterize", p, 0),
-        #     ("Solarize", p, 4),
-        #     ("TranslateY", p, 8),
-        #     ("ShearX", p, 5),
-        #     ("Brightness", p, 3),
-        #     ("ShearY", p, 0),
-        #     ("TranslateX", p, 1),
-        #     ("Sharpness", p, 5),
-        #     ("Invert", p, None),
-        #     ("Color", p, 4),
-        #     ("Equalize", p, None),
-        #     ("Rotate", p, 3),
-        # ] if policy == AutoAugmentPolicy.CIFAR10 else self.policies
         self.policies.append(("CutMix", None, None))
         print(self.policies)
         self.tran = (
@@ -254,6 +244,9 @@ class LearningAutoAugment(transforms.AutoAugment):
         )
         # TODO: Learning Module
         self.fc = nn.Sequential()
+        if H > 56 and W > 56:
+            self.fc.add_module("conv1", Reshape(C=C,H=H,W=W,P=len(self.policies)))
+            H, W = H // 7, W // 7
         self.fc.add_module("fc1", nn.Linear(len(self.policies) * C * H * W, 512))
         self.fc.add_module("relu", nn.ReLU(inplace=True))
         self.fc.add_module("fc2", nn.Linear(512, len(self.policies)))
@@ -277,8 +270,8 @@ class LearningAutoAugment(transforms.AutoAugment):
 
         self.buffer[indexs] = (
             self.buffer[indexs]
-            .mul_(momentum)
-            .add_((1.0 - momentum) * weight.clone().detach().float())
+                .mul_(momentum)
+                .add_((1.0 - momentum) * weight.clone().detach().float())
         )
 
     def forward(self, img: Tensor, y, indexs, epoch):
@@ -287,7 +280,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         assert isinstance(img, Tensor), "The input must be Tensor!"
         assert (
-            img.shape[1] == 1 or img.shape[1] == 3
+                img.shape[1] == 1 or img.shape[1] == 3
         ), "The channels for image input must be 1 and 3"
         if img.dtype != torch.uint8:
             if self.policy == AutoAugmentPolicy.CIFAR10:
@@ -302,7 +295,7 @@ class LearningAutoAugment(transforms.AutoAugment):
             torch.clip_(img, 0, 255)
             img = img.type(torch.uint8)
         assert (
-            img.dtype == torch.uint8
+                img.dtype == torch.uint8
         ), "Only torch.uint8 image tensors are supported, but found torch.int64"
 
         fill = self.fill
@@ -343,17 +336,19 @@ class LearningAutoAugment(transforms.AutoAugment):
         results = torch.stack(results, 0)  # P,B,C,H,W
         labels = torch.stack(lasbels, 0)
         P, B, C, H, W = results.shape
+        tmp = results
         results = results.view(P, B, -1)  # P,B,C*H*W
+
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
 
         attention_vector = (
-            einops.rearrange(
-                torch.sigmoid(self.fc(einops.rearrange(results[1:], "p b c -> b (p c)"))),
-                "b c -> c b",
-            )[..., None]
-            + 1
+                einops.rearrange(
+                    torch.sigmoid(self.fc(tmp[1:])),
+                    "b c -> c b",
+                )[..., None]
+                + 1
         )
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
@@ -374,13 +369,12 @@ class LearningAutoAugment(transforms.AutoAugment):
             -1
         ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
         result = (
-            (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
+                (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
         ).view(B, C, H, W)
         labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
             B, -1
         )
         return result, labels
-
 
 #
 # model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()
