@@ -183,7 +183,7 @@ class LearnDiversifyEnv(object):
         self.only_satge_one = self.yaml["only_stage_one"]
 
     def reset_parameters(self, modules):
-        for module in modules:
+        for module in modules.modules():
             if isinstance(module, nn.Linear):
                 nn.init.trunc_normal_(module.weight.data, 0, 0.001)
                 if module.bias is not None:
