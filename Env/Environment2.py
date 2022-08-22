@@ -17,7 +17,6 @@ from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.dynamic_feature_distillation import DynamicFeatureDistillation
 from utils.mmd import conditional_mmd_rbf
 from utils.save_Image import change_tensor_to_image
-from utils.memory_track import MemTracker
 
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -67,7 +66,6 @@ class LearnDiversifyEnv(object):
         self.episode = 0.0
         self.best_acc = 0.0
         self.accumuate_count = 0
-        self.tracker=MemTracker()
         self.scaler = torch.cuda.amp.GradScaler()
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
         if self.gpu==0:
@@ -260,7 +258,6 @@ class LearnDiversifyEnv(object):
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-        self.tracker.track()
 
         # TODO: Learning to diversify
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
@@ -270,7 +267,6 @@ class LearnDiversifyEnv(object):
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max.detach(), input])
         labels = torch.cat([target_temp.detach(), target])
-        self.tracker.track()
 
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
@@ -289,7 +285,6 @@ class LearnDiversifyEnv(object):
             student_embedding = self.reparametrize(student_mu, student_logvar)
             teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
         # TODO: compute relative loss
-        self.tracker.track()
 
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
@@ -319,7 +314,6 @@ class LearnDiversifyEnv(object):
         self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
-        self.tracker.track()
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
