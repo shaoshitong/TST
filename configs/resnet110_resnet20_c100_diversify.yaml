@@ -27,7 +27,7 @@ sc_lr:
   0.01
 weights:
   - 0.5
-  - 1
+  - 0
   - 0
   - 0
   - 1
@@ -114,10 +114,10 @@ dfd:
     - 2
     - 2
 only_stage_one:
-  False
+  True
 ckpt_root:
   "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
 local_ckpt_path:
-  "./checkpoints/teacher2"
+  "/home/sst/product/LLACD/checkpoints/teacher2"
 
 # w/o eval LLA benchmark2

@@ -86,7 +86,6 @@ class LearnDiversifyEnv(object):
                 img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
             ).cpu()
         )
-        self.reset_parameters(self.convertor)
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(),
             lr=yaml["sc_lr"],
@@ -149,8 +148,6 @@ class LearnDiversifyEnv(object):
                 nn.LeakyReLU(),
             )
         )
-        self.reset_parameters(self.p_mu)
-        self.reset_parameters(self.p_logvar)
         # TODO: It is important to remember to add the last parameter in the optimizer
         self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
@@ -183,7 +180,7 @@ class LearnDiversifyEnv(object):
         self.only_satge_one = self.yaml["only_stage_one"]
 
     def reset_parameters(self, modules):
-        for module in modules:
+        for module in modules.modules():
             if isinstance(module, nn.Linear):
                 nn.init.trunc_normal_(module.weight.data, 0, 0.001)
                 if module.bias is not None:

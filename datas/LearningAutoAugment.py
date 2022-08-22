@@ -359,12 +359,12 @@ class LearningAutoAugment(transforms.AutoAugment):
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
 
         # TODO: 解决数值不稳定的问题
-        self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
-        use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
-        if epoch % 2 == 0:
-            attention_vector = use_attention_vector.detach()
-        else:
-            attention_vector = attention_vector
+        # self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
+        # use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
+        # if epoch % 2 == 0:
+        #     attention_vector = use_attention_vector.detach()
+        # else:
+        attention_vector = attention_vector
         # TODO: End
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(
