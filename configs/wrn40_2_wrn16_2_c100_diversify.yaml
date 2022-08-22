@@ -29,7 +29,7 @@ weights:
   - 1
   - 1
   - 1
-  - 1
+  - 0
   - 1
   - 1
 augnettype:
@@ -120,4 +120,4 @@ ckpt_root:
 local_ckpt_path:
   "./checkpoints/teacher2"
 
-# w/o eval LLA benchmark2
+# left: 1 1 1 1 1 1 right: 1 1 1 0 1 1

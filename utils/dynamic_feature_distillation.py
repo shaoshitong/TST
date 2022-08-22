@@ -817,6 +817,7 @@ class DynamicFeatureDistillation(nn.Module):
                 z = self.ABF_student[-ite](z)
                 new_student_feature_map = student_feature_map * z[:, 0].view(z.shape[0], 1, h, w)\
                                           +  res_feature_map[1] * z[:, 1].view(z.shape[0], 1, h, w)
+                # new_student_feature_map = student_feature_map
             else:
                 new_teacher_feature_map = (teacher_feature_map + res_feature_map[0]) / 2
                 new_student_feature_map = (student_feature_map + res_feature_map[1]) / 2
