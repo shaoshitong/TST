@@ -169,12 +169,23 @@ class LearnDiversifyEnv(object):
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
+        self.freeze_modeules_list = [self.dfd, self.student_model, self.teacher_model, self.teacher_expand, self.p_mu, self.p_logvar]
     def reset_parameters(self, modules):
         for module in modules.modules():
             if isinstance(module, nn.Linear):
                 nn.init.trunc_normal_(module.weight.data, 0, 0.001)
                 if module.bias is not None:
                     nn.init.constant_(module.bias.data, 0)
+
+    def _freeze_parameters(self,modeules):
+        for module in modeules:
+            for i in module.modules():
+                i.requires_grad = False
+
+    def _unfreeze_parameters(self,modeules):
+        for module in modeules:
+            for i in module.modules():
+                i.requires_grad = False
 
     def reparametrize(self, mu, logvar, factor=0.2):
         std = logvar.div(2).exp()
@@ -232,7 +243,7 @@ class LearnDiversifyEnv(object):
     def Loglikeli(self, mu, logvar, y_samples):
         return (-((mu - y_samples) ** 2) / logvar.exp() - logvar).mean()
 
-    def Club(self, mu, logvar, y_samples, t_mu, t_logvar, t_y_samples):
+    def Club(self, mu, logvar, y_samples):
 
         positive = -((mu - y_samples) ** 2) / 2.0 / logvar.exp()
         prediction_1 = mu.unsqueeze(1)  # shape [nsample,1,dim]
@@ -258,7 +269,7 @@ class LearnDiversifyEnv(object):
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-
+        self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
             inputs_max, target_temp = self.convertor(input, target, indexs, 2 * self.epoch)
@@ -273,17 +284,12 @@ class LearnDiversifyEnv(object):
             with torch.no_grad():
                 (teacher_tuple, teacher_logits) = self.teacher_model(data_aug, is_feat=True)
             student_lambda = student_tuple[-1]
-            teacher_lambda = teacher_tuple[-1]
             student_tuple = student_tuple[:-1]
             teacher_tuple = teacher_tuple[:-1]
             student_avgpool = self.avgpool2d(student_lambda)
-            teacher_avgpool = self.teacher_expand(self.avgpool2d(teacher_lambda))
             student_logvar = self.p_logvar(student_avgpool)
             student_mu = self.p_mu(student_avgpool)
-            teacher_logvar = self.p_logvar(teacher_avgpool)
-            teacher_mu = self.p_mu(teacher_avgpool)
             student_embedding = self.reparametrize(student_mu, student_logvar)
-            teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
@@ -320,6 +326,7 @@ class LearnDiversifyEnv(object):
         # TODO: Second Stage
 
         if not self.only_satge_one:
+            self._freeze_parameters(self.freeze_modeules_list)
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
                 inputs_max, target_temp = self.convertor(
                     input, target, indexs, 2 * self.epoch + 1
@@ -336,30 +343,20 @@ class LearnDiversifyEnv(object):
                 student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
                 teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
                 student_lambda = student_tuples[-1]
-                teacher_lambda = teacher_tuples[-1]
                 student_tuples = student_tuples[:-1]
                 teacher_tuples = teacher_tuples[:-1]
                 student_avgpool = self.avgpool2d(student_lambda)
-                teacher_avgpool = self.teacher_expand(self.avgpool2d(teacher_lambda))
                 student_logvar = self.p_logvar(student_avgpool)
                 student_mu = self.p_mu(student_avgpool)
-                teacher_logvar = self.p_logvar(teacher_avgpool)
-                teacher_mu = self.p_mu(teacher_avgpool)
                 student_embedding = self.reparametrize(student_mu, student_logvar)
-                teacher_embedding = self.reparametrize(teacher_mu, teacher_logvar)
 
             # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
             augmented_student_logvar = student_logvar[:b]
             augmented_student_mu = student_mu[:b]
-            augmented_teacher_logvar = teacher_logvar[:b]
-            augmented_teacher_mu = teacher_mu[:b]
             club_loss = self.Club(
                 augmented_student_mu,
                 augmented_student_logvar,
                 student_embedding[b:],
-                augmented_teacher_mu,
-                augmented_teacher_logvar,
-                teacher_embedding[b:],
             )
 
             # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
