@@ -218,7 +218,7 @@ def Original_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, tes
     """
     trainset = IndexDataset(
         torchvision.datasets.ImageFolder(
-            data_path,
+            data_path+"/train",
             transforms.Compose(
                 [
                     transforms.RandomResizedCrop(224),
@@ -231,7 +231,7 @@ def Original_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, tes
     )
     train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
     testset = torchvision.datasets.ImageFolder(
-        data_path,
+        data_path+"/val",
         transforms.Compose(
             [
                 transforms.Resize(256),
