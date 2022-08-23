@@ -32,7 +32,7 @@ weights:
 augnettype:
   SmallImageAugNet
 data_path:
-  /data/data/cifar100/
+  /home/sst/dataset/c100
 val_ratio:
   0.05
 num_worker:

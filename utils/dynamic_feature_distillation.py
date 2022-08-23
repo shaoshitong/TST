@@ -529,6 +529,7 @@ class DynamicFeatureDistillation(nn.Module):
         self.swinblocknumber = swinblocknumber
         self.patch_size = patch_size
         assert distill_mode in ["all", "one", "last_two"]
+        assert mode in ["conv","swin"]
         self.distill_mode = distill_mode
 
         if self.distill_mode == "one":

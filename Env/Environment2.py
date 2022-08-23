@@ -272,12 +272,12 @@ class LearnDiversifyEnv(object):
         # self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-            inputs_max, target_temp = self.convertor(input, target, indexs, 2 * self.epoch)
+            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch)
         else:
-            inputs_max, target_temp = self.convertor(input, target, indexs, 2 * self.epoch)
+            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch)
         b, c, h, w = inputs_max.shape
-        data_aug = torch.cat([inputs_max.detach(), input])
-        labels = torch.cat([target_temp.detach(), target])
+        data_aug = torch.cat([inputs_max, input])
+        labels = torch.cat([target_temp, target])
 
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
@@ -317,7 +317,7 @@ class LearnDiversifyEnv(object):
             + self.weights[1] * likeli_loss
             + self.weights[2] * dfd_loss
         )
-        self.convertor_optimizer.zero_grad()
+        # self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
@@ -329,16 +329,15 @@ class LearnDiversifyEnv(object):
             # self._freeze_parameters(self.freeze_modeules_list)
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
                 inputs_max, target_temp = self.convertor(
-                    input, target, indexs, 2 * self.epoch + 1
+                    input.clone(), target, indexs, 2 * self.epoch + 1
                 )
             else:
                 inputs_max, target_temp = self.convertor(
-                    input, target, indexs, 2 * self.epoch + 1
+                    input.clone(), target, indexs, 2 * self.epoch + 1
                 )
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
-
             with torch.cuda.amp.autocast(enabled=True):
                 student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
                 teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
@@ -392,7 +391,7 @@ class LearnDiversifyEnv(object):
 
             # TODO: update params
             self.convertor_optimizer.zero_grad()
-            self.optimizer.zero_grad()
+            # self.optimizer.zero_grad()
             self.scaler.scale(loss_2).backward()
             nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
             self.scaler.step(self.convertor_optimizer)

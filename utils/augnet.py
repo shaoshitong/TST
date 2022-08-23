@@ -150,6 +150,7 @@ class SmallImageAugNet(nn.Module):
             policy_type = AutoAugmentPolicy.IMAGENET
         else:
             raise NotImplementedError
+        print(policy_type)
         self.learningautoaugment = LearningAutoAugment(
             policy=policy_type,
             C=yaml["LAA"]["C"],
