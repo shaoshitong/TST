@@ -694,7 +694,6 @@ class DynamicFeatureDistillation(nn.Module):
         """
         b, c, h, w = teacher_feature_map.shape
         patch_size = 7 if self.patch_size==1 and h>7 and h%7==0 else self.patch_size
-
         soft_mask = torch.rand(1, 1, 1, 1, h // patch_size, w // patch_size).to(
             teacher_feature_map.device
         )

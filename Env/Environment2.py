@@ -269,7 +269,7 @@ class LearnDiversifyEnv(object):
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-        self._unfreeze_parameters(self.freeze_modeules_list)
+        # self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
         if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
             inputs_max, target_temp = self.convertor(input, target, indexs, 2 * self.epoch)
@@ -326,7 +326,7 @@ class LearnDiversifyEnv(object):
         # TODO: Second Stage
 
         if not self.only_satge_one:
-            self._freeze_parameters(self.freeze_modeules_list)
+            # self._freeze_parameters(self.freeze_modeules_list)
             if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
                 inputs_max, target_temp = self.convertor(
                     input, target, indexs, 2 * self.epoch + 1
