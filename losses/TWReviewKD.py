@@ -14,11 +14,10 @@ class ABF(nn.Module):
         super(ABF, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channel, mid_channel, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
             nn.BatchNorm2d(mid_channel),
-        )
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(mid_channel, out_channel, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(out_channel),
+            nn.Conv2d(mid_channel,mid_channel,(3,3),(1,1),(1,1),groups=mid_channel,bias=False),
+            nn.BatchNorm2d(mid_channel)
         )
         if fuse:
             self.att_conv = nn.Sequential(
@@ -28,8 +27,7 @@ class ABF(nn.Module):
         else:
             self.att_conv = None
         nn.init.kaiming_uniform_(self.conv1[0].weight, a=1)  # pyre-ignore
-        nn.init.kaiming_uniform_(self.conv2[0].weight, a=1)  # pyre-ignore
-
+        nn.init.kaiming_uniform_(self.conv1[3].weight, a=1)
     def forward(self, x, y=None, shape=None, out_shape=None):
         n, _, h, w = x.shape
         # transform student features
@@ -44,8 +42,7 @@ class ABF(nn.Module):
         # output
         if x.shape[-1] != out_shape:
             x = F.interpolate(x, (out_shape, out_shape), mode="nearest")
-        y = self.conv2(x)
-        return y, x
+        return x
 
 
 class TWReviewKD(nn.Module):
@@ -87,28 +84,26 @@ class TWReviewKD(nn.Module):
         features_student = features_student[::-1]
         features_teacher = features_teacher[::-1]
         student_results = []
-        out_features, res_features = self.abfs_student[0](features_student[0], out_shape=self.out_shapes[0])
-        student_results.append(out_features)
+        res_features = self.abfs_student[0](features_student[0], out_shape=self.out_shapes[0])
+        student_results.append(res_features)
         for features, abf, shape, out_shape in zip(
             features_student[1:], self.abfs_student[1:], self.shapes[1:], self.out_shapes[1:]
         ):
-            out_features, res_features = abf(features, res_features, shape, out_shape)
-            student_results.insert(0, out_features)
+            res_features = abf(features, res_features, shape, out_shape)
+            student_results.insert(0, res_features)
 
         "==================================="
 
         teacher_results = []
-        out_features, res_features = self.abfs_teacher[0](features_teacher[0], out_shape=self.shapes[0])
-        teacher_results.append(out_features)
+        res_features = self.abfs_teacher[0](features_teacher[0], out_shape=self.shapes[0])
+        teacher_results.append(res_features)
         for features, abf, shape, out_shape in zip(
             features_teacher[1:], self.abfs_teacher[1:], self.out_shapes[1:], self.shapes[1:]
         ):
-            out_features, res_features = abf(features, res_features, shape, out_shape)
-            teacher_results.insert(0, out_features)
+            res_features = abf(features, res_features, shape, out_shape)
+            teacher_results.insert(0, res_features)
         # losses
         losses = 0.
-        for s,t in zip(features_student[::-1],teacher_results):
-            losses += F.mse_loss(s,t,reduction="mean")
-        for s,t in zip(features_teacher[::-1],student_results):
+        for s,t in zip(student_results,teacher_results):
             losses += F.mse_loss(s,t,reduction="mean")
         return losses

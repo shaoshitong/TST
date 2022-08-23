@@ -154,7 +154,7 @@ if __name__ == "__main__":
     set_random_seed(0)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_devices
     os.environ["MASTER_ADDR"] = "127.0.0.1"  #
-    os.environ["MASTER_PORT"] = "8889"  #
+    os.environ["MASTER_PORT"] = "8888"  #
     world_size = 1
     port_id = 10000 + np.random.randint(0, 1000)
     dist_url = "tcp://127.0.0.1:" + str(port_id)
