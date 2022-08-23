@@ -537,7 +537,12 @@ class LearnDiversifyEnv(object):
                     dict = {
                         "epoch": self.epoch,
                         "optimizer": self.optimizer.state_dict(),
-                        "model": self.student_model.state_dict(),
+                        "student_model": self.student_model.state_dict(),
+                        "p_mu": self.p_mu.state_dict(),
+                        "p_logvar":self.p_logvar.state_dict(),
+                        "dfd":self.dfd.state_dict(),
+                        "convertor": self.convertor.state_dict(),
+                        "convertor_optimizer":self.convertor_optimizer.state_dict(),
                         "acc": vtop1,
                     }
                     torch.save(dict, model_path)
