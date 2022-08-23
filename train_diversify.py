@@ -93,10 +93,10 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
         wandb.init(project="LLA_DFD", entity="seushanshan")
     tnet: nn.Module = torch.nn.DataParallel(getattr(models, yaml_config["tarch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda(gpu))
+    ).cuda(gpu),device_ids=[gpu])
     net: nn.Module = DDP(getattr(models, yaml_config["arch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda(gpu))
+    ).cuda(gpu),device_ids=[gpu])
     ROOT = yaml_config["ckpt_root"]
     local_ckpt_path = yaml_config["local_ckpt_path"]
     if yaml_config["tcheckpoint"]:
