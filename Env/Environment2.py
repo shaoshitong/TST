@@ -169,7 +169,9 @@ class LearnDiversifyEnv(object):
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
-        self.freeze_modeules_list = [self.dfd, self.student_model, self.teacher_model, self.teacher_expand, self.p_mu, self.p_logvar]
+        self.freeze_modeules_list = [self.dfd, self.student_model, self.teacher_expand, self.p_mu, self.p_logvar]
+        for param in self.teacher_model.parameters():
+            param.requires_grad = False
     def reset_parameters(self, modules):
         for module in modules.modules():
             if isinstance(module, nn.Linear):
@@ -269,12 +271,9 @@ class LearnDiversifyEnv(object):
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-        # self._unfreeze_parameters(self.freeze_modeules_list)
+        self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch)
-        else:
-            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch)
+        inputs_max, target_temp = self.convertor.module(input.clone(), target, indexs, 2 * self.epoch)
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
@@ -326,27 +325,20 @@ class LearnDiversifyEnv(object):
         # TODO: Second Stage
 
         if not self.only_satge_one:
-            # self._freeze_parameters(self.freeze_modeules_list)
-            if self.epoch < int(self.yaml["scheduler"]["milestones"][0]):
-                inputs_max, target_temp = self.convertor(
-                    input.clone(), target, indexs, 2 * self.epoch + 1
-                )
-            else:
-                inputs_max, target_temp = self.convertor(
-                    input.clone(), target, indexs, 2 * self.epoch + 1
-                )
+            self._freeze_parameters(self.freeze_modeules_list)
+            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch + 1 )
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
             with torch.cuda.amp.autocast(enabled=True):
-                student_tuples, student_logits = self.student_model(data_aug, is_feat=True)
-                teacher_tuples, teacher_logits = self.teacher_model(data_aug, is_feat=True)
+                student_tuples, student_logits = self.student_model.module(data_aug, is_feat=True)
+                teacher_tuples, teacher_logits = self.teacher_model.module(data_aug, is_feat=True)
                 student_lambda = student_tuples[-1]
                 student_tuples = student_tuples[:-1]
                 teacher_tuples = teacher_tuples[:-1]
                 student_avgpool = self.avgpool2d(student_lambda)
-                student_logvar = self.p_logvar(student_avgpool)
-                student_mu = self.p_mu(student_avgpool)
+                student_logvar = self.p_logvar.module(student_avgpool)
+                student_mu = self.p_mu.module(student_avgpool)
                 student_embedding = self.reparametrize(student_mu, student_logvar)
 
             # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
@@ -380,7 +372,7 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd(teacher_tuples, student_tuples, labels) * 0.8
+                    ne_dfd_loss = -self.dfd.module(teacher_tuples, student_tuples, labels) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (

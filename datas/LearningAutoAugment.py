@@ -335,22 +335,31 @@ class LearningAutoAugment(transforms.AutoAugment):
             lasbels.append(y)
         results = torch.stack(results, 0)  # P,B,C,H,W
         labels = torch.stack(lasbels, 0)
-        P, B, C, H, W = results.shape
-        tmp = results[1:]
-        results = results.view(P, B, -1)  # P,B,C*H*W
+
 
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
+
+        P, B, C, H, W = results.shape
         if self.policy == AutoAugmentPolicy.CIFAR10:
-            tmp = einops.rearrange(results[1:],"p b c -> b (p c)")
-        attention_vector = (
-                einops.rearrange(
-                    torch.sigmoid(self.fc(tmp)),
-                    "b c -> c b",
-                )[..., None]
-                + 1
-        )
+            results = results.view(P, B, -1)  # P,B,C*H*W
+            attention_vector = (
+                    einops.rearrange(
+                        torch.sigmoid(self.fc(einops.rearrange(results[1:],"p b c -> b (p c)"))),
+                        "b c -> c b",
+                    )[..., None]
+                    + 1
+            )
+        else:
+            attention_vector = (
+                    einops.rearrange(
+                        torch.sigmoid(self.fc(results[1:])),
+                        "b c -> c b",
+                    )[..., None]
+                    + 1
+            )
+            results = results.view(P, B, -1)  # P,B,C*H*W
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
 
