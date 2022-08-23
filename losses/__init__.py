@@ -1,3 +1,7 @@
 from .KD import KDLoss
-
-__all__ = ["KDLoss"]
+from .ReviewKD import ReviewKD
+from .DFD import DynamicFeatureDistillation
+__all__ = [
+    "KDLoss",
+    "ReviewKD",
+    "DynamicFeatureDistillation"]
