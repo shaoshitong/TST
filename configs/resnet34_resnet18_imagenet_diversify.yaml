@@ -21,7 +21,7 @@ LAA:
 img_size:
   224
 sc_lr:
-  0.01
+  0.04
 weights:
   - 1
   - 1

@@ -88,6 +88,8 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
 
     # TODO: LLA_DFD
     if gpu==0:
+        os.environ["WANDB_API_KEY"] = '625345833d2e13b7e2c695c406cc01311f39bf40'
+        os.environ["WANDB_MODE"] = "offline"
         wandb.init(project="LLA_DFD", entity="seushanshan")
     tnet: nn.Module = torch.nn.DataParallel(getattr(models, yaml_config["tarch"])(
         num_classes=yaml_config["num_classes"]
