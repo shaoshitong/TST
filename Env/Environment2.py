@@ -51,6 +51,7 @@ class LearnDiversifyEnv(object):
         self.num_classes = yaml["num_classes"]
         self.loss = loss
         self.epoch = 0
+        self.begin_epoch = 0
         self.total_epoch = yaml["epoch"]
         self.yaml = yaml
         self.wandb = wandb
@@ -59,7 +60,6 @@ class LearnDiversifyEnv(object):
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.gpu=gpu
         self.done = False
-        self.episode = 0.0
         self.best_acc = 0.0
         self.accumuate_count = 0
         self.scaler = torch.cuda.amp.GradScaler()
@@ -174,6 +174,23 @@ class LearnDiversifyEnv(object):
         self.freeze_modeules_list = [self.dfd, self.student_model, self.teacher_expand, self.p_mu, self.p_logvar]
         for param in self.teacher_model.parameters():
             param.requires_grad = False
+
+        if yaml["resume"] != "none":
+            dict = torch.load(yaml["resume"])
+            self.optimizer.load_state_dict(dict["optimizer"])
+            self.scheduler.load_state_dict(dict["scheduler"])
+            self.student_model.load_state_dict(dict["student_model"])
+            self.p_mu.load_state_dict(dict["p_mu"])
+            self.p_logvar.load_state_dict(dict["p_logvar"])
+            self.convertor.load_state_dict(dict["convertor"])
+            self.convertor_optimizer.load_state_dict(dict["convertor_optimizer"])
+            self.convertor_scheduler.load_state_dict(dict["convertor_scheduler"])
+            self.scaler.load_state_dict(dict["scaler"])
+            self.best_acc = dict["acc"]
+            self.begin_epoch = self.epoch = dict["epoch"]
+            print(f"successfully load checkpoint from {yaml['resume']}")
+
+
     def reset_parameters(self, modules):
         for module in modules.modules():
             if isinstance(module, nn.Linear):
@@ -259,13 +276,6 @@ class LearnDiversifyEnv(object):
 
     def Mmd(self, e1, e2, target, num_class):
         return conditional_mmd_rbf(e1, e2, target, num_class)
-
-    def reset(self):
-        self.begin_tloss = 0.0
-        self.begin_ttop1 = 0.0
-        self.begin_vloss = 0.0
-        self.begin_vtop1 = 0.0
-        self.best_acc = 0.0
 
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
         # TODO: turn target (N,1) -> (N,C)
@@ -516,7 +526,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
-        for i in range(self.total_epoch):
+        for i in range(self.begin_epoch,self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
             ttop1, tloss, _ = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()
@@ -528,26 +538,29 @@ class LearnDiversifyEnv(object):
             self.epoch += 1
             if self.best_acc < vtop1:
                 self.best_acc = vtop1
-                path = self.model_save_path
-                if self.gpu==0:
-                    if not os.path.isdir(path):
-                        os.makedirs(path)
-                    model_path = os.path.join(
-                        self.model_save_path,
-                        f"_epoch_{i}_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}",
-                    )
-                    dict = {
-                        "epoch": self.epoch,
-                        "optimizer": self.optimizer.state_dict(),
-                        "student_model": self.student_model.state_dict(),
-                        "p_mu": self.p_mu.state_dict(),
-                        "p_logvar":self.p_logvar.state_dict(),
-                        "dfd":self.dfd.state_dict(),
-                        "convertor": self.convertor.state_dict(),
-                        "convertor_optimizer":self.convertor_optimizer.state_dict(),
-                        "acc": vtop1,
-                    }
-                    torch.save(dict, model_path)
+            path = self.model_save_path
+            if self.gpu==0:
+                if not os.path.isdir(path):
+                    os.makedirs(path)
+                model_path = os.path.join(
+                    self.model_save_path,
+                    f"_epoch_{i}_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}",
+                )
+                dict = {
+                    "epoch": self.epoch,
+                    "acc": vtop1,
+                    "scaler": self.scaler.state_dict(),
+                    "optimizer": self.optimizer.state_dict(),
+                    "student_model": self.student_model.state_dict(),
+                    "p_mu": self.p_mu.state_dict(),
+                    "p_logvar":self.p_logvar.state_dict(),
+                    "dfd":self.dfd.state_dict(),
+                    "convertor": self.convertor.state_dict(),
+                    "convertor_optimizer":self.convertor_optimizer.state_dict(),
+                    "scheduler": self.scheduler.state_dict(),
+                    "convertor_scheduler": self.convertor_scheduler.state_dict(),
+                }
+                torch.save(dict, model_path)
         self.log.flush()
         if self.gpu==0:
             self.ff.close()

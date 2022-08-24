@@ -38,6 +38,12 @@ parser.add_argument(
     default="0",
     help="data parallel training",
 )
+parser.add_argument(
+    "--resume",
+    type=str,
+    default="",
+    help="resume checkpoint",
+)
 args = parser.parse_args()
 
 
@@ -72,7 +78,7 @@ def yaml_config_get(args):
     return conf
 
 
-def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
+def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
     # TODO: NCCL  INIT
     print("Use GPU: {} for training".format(gpu))
     rank = 0  # 单机
@@ -87,16 +93,16 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
     yaml_config["test_batch_size"] = int(yaml_config["test_batch_size"] / ngpus_per_node)
 
     # TODO: LLA_DFD
-    if gpu==0:
+    if gpu == 0:
         os.environ["WANDB_API_KEY"] = '625345833d2e13b7e2c695c406cc01311f39bf40'
         os.environ["WANDB_MODE"] = "offline"
         wandb.init(project="LLA_DFD", entity="seushanshan")
     tnet: nn.Module = torch.nn.DataParallel(getattr(models, yaml_config["tarch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda(gpu),device_ids=[gpu])
+    ).cuda(gpu), device_ids=[gpu])
     net: nn.Module = DDP(getattr(models, yaml_config["arch"])(
         num_classes=yaml_config["num_classes"]
-    ).cuda(gpu),device_ids=[gpu])
+    ).cuda(gpu), device_ids=[gpu])
     ROOT = yaml_config["ckpt_root"]
     local_ckpt_path = yaml_config["local_ckpt_path"]
     if yaml_config["tcheckpoint"]:
@@ -127,7 +133,7 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
     criticion = getattr(losses, yaml_config["criticion"]["type"])(
         temperature=yaml_config["criticion"]["temperature"]
     )
-    if gpu==0:
+    if gpu == 0:
         wandb.config = yaml_config
     env = LearnDiversifyEnv(
         dataloader=trainloader,
@@ -138,7 +144,7 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
         optimizer=optimizer,
         loss=criticion,
         yaml=yaml_config,
-        wandb=wandb if gpu==0 else None,
+        wandb=wandb if gpu == 0 else None,
         gpu=gpu,
     )
     env.training_in_all_epoch()
@@ -147,6 +153,7 @@ def main_worker(gpu,yaml_config,ngpus_per_node,world_size,dist_url):
 
 if __name__ == "__main__":
     yaml_config = yaml_config_get(args)
+    yaml_config["resume"] = "none" if args.resume == "" else args.resume
     device = set_device()
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = False
@@ -171,4 +178,3 @@ if __name__ == "__main__":
             world_size,
             dist_url
         ))
-
