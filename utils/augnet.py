@@ -144,9 +144,9 @@ class SmallImageAugNet(nn.Module):
         super(SmallImageAugNet, self).__init__()
         # TODO: M
         self.alpha = 1
-        if yaml['LAA']['augmentation_policy'] == "cifar10":
+        if yaml["LAA"]["augmentation_policy"] == "cifar10":
             policy_type = AutoAugmentPolicy.CIFAR10
-        elif yaml['LAA']['augmentation_policy'] == "imagenet":
+        elif yaml["LAA"]["augmentation_policy"] == "imagenet":
             policy_type = AutoAugmentPolicy.IMAGENET
         else:
             raise NotImplementedError
@@ -159,6 +159,7 @@ class SmallImageAugNet(nn.Module):
             p=yaml["LAA"]["p"],
             num_train_samples=num_train_samples,
         )
+
     def forward(self, x, y, indexs, epoch):
         x, y = self.learningautoaugment(x, y, indexs, epoch)
         return x, y

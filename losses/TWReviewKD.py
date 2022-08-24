@@ -6,9 +6,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-
-
-
 class ABF(nn.Module):
     def __init__(self, in_channel, mid_channel, out_channel, fuse):
         super(ABF, self).__init__()
@@ -16,8 +13,10 @@ class ABF(nn.Module):
             nn.Conv2d(in_channel, mid_channel, kernel_size=1, bias=False),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(mid_channel),
-            nn.Conv2d(mid_channel,mid_channel,(3,3),(1,1),(1,1),groups=mid_channel,bias=False),
-            nn.BatchNorm2d(mid_channel)
+            nn.Conv2d(
+                mid_channel, mid_channel, (3, 3), (1, 1), (1, 1), groups=mid_channel, bias=False
+            ),
+            nn.BatchNorm2d(mid_channel),
         )
         if fuse:
             self.att_conv = nn.Sequential(
@@ -28,6 +27,7 @@ class ABF(nn.Module):
             self.att_conv = None
         nn.init.kaiming_uniform_(self.conv1[0].weight, a=1)  # pyre-ignore
         nn.init.kaiming_uniform_(self.conv1[3].weight, a=1)
+
     def forward(self, x, y=None, shape=None, out_shape=None):
         n, _, h, w = x.shape
         # transform student features
@@ -50,8 +50,8 @@ class TWReviewKD(nn.Module):
         super().__init__()
         self.shapes = copy.deepcopy(shapes[::-1])
         self.out_shapes = copy.deepcopy(out_shapes[::-1])
-        in_channels = in_channels # student
-        out_channels = out_channels # teacher
+        in_channels = in_channels  # student
+        out_channels = out_channels  # teacher
         self.max_mid_channel = max_mid_channel
 
         abfs_student = nn.ModuleList()
@@ -103,7 +103,7 @@ class TWReviewKD(nn.Module):
             res_features = abf(features, res_features, shape, out_shape)
             teacher_results.insert(0, res_features)
         # losses
-        losses = 0.
-        for s,t in zip(student_results,teacher_results):
-            losses += F.mse_loss(s,t,reduction="mean")
+        losses = 0.0
+        for s, t in zip(student_results, teacher_results):
+            losses += F.mse_loss(s, t, reduction="mean")
         return losses

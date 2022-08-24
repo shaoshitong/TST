@@ -5,16 +5,16 @@ import timm.scheduler.scheduler
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from utils.augnet import BigImageAugNet, SmallImageAugNet
 from losses.ReviewKD import ReviewKD
+from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 def log_backward(module, grad_inputs, grad_outputs):
     print("=========")
@@ -24,6 +24,7 @@ def log_backward(module, grad_inputs, grad_outputs):
         print(grad_output.norm())
     print(module)
     print("=========")
+
 
 class LearnDiversifyEnv(object):
     def __init__(
@@ -43,8 +44,8 @@ class LearnDiversifyEnv(object):
         # TODO: basic settings
         self.dataloader = dataloader
         self.testloader = testloader
-        self.student_model=student_model
-        self.teacher_model=teacher_model
+        self.student_model = student_model
+        self.teacher_model = teacher_model
         assert isinstance(self.dataloader.dataset, torch.utils.data.Dataset)
         self.scheduler = scheduler
         self.optimizer = optimizer
@@ -58,13 +59,13 @@ class LearnDiversifyEnv(object):
         self.model_save_path = yaml["model_save_path"]
         self.log = Log(log_each=yaml["log_each"])
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.gpu=gpu
+        self.gpu = gpu
         self.done = False
         self.best_acc = 0.0
         self.accumuate_count = 0
         self.scaler = torch.cuda.amp.GradScaler()
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
-        if self.gpu==0:
+        if self.gpu == 0:
             self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
@@ -72,9 +73,14 @@ class LearnDiversifyEnv(object):
             BigImageAugNet if not yaml["augnettype"] == "SmallImageAugNet" else SmallImageAugNet
         )
         self.convertor = (
-            DDP(AugNet(
-                img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
-            ).cuda(gpu),device_ids=[gpu])
+            DDP(
+                AugNet(
+                    img_size=yaml["img_size"],
+                    num_train_samples=len(self.dataloader.dataset),
+                    yaml=yaml,
+                ).cuda(gpu),
+                device_ids=[gpu],
+            )
             if torch.cuda.is_available()
             else AugNet(
                 img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
@@ -95,26 +101,32 @@ class LearnDiversifyEnv(object):
             transforms.Compose(
                 [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
             )
-            if yaml['LAA']["augmentation_policy"] == "cifar10"
+            if yaml["LAA"]["augmentation_policy"] == "cifar10"
             else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         )
         self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
 
         if self.student_model.module.last_channel != self.teacher_model.module.last_channel:
-            self.teacher_expand = DDP(nn.Linear(
-                self.teacher_model.module.last_channel, self.student_model.module.last_channel
-            ).cuda(gpu),device_ids=[gpu])
+            self.teacher_expand = DDP(
+                nn.Linear(
+                    self.teacher_model.module.last_channel, self.student_model.module.last_channel
+                ).cuda(gpu),
+                device_ids=[gpu],
+            )
         else:
             self.teacher_expand = nn.Identity()
 
         self.p_logvar = (
-            DDP(nn.Sequential(
-                nn.Linear(self.student_model.module.last_channel, 512),
-                nn.GELU(),
-                nn.Linear(512, 512),
-                nn.LayerNorm(512),
-                nn.LeakyReLU(),
-            ).cuda(gpu),device_ids=[gpu])
+            DDP(
+                nn.Sequential(
+                    nn.Linear(self.student_model.module.last_channel, 512),
+                    nn.GELU(),
+                    nn.Linear(512, 512),
+                    nn.LayerNorm(512),
+                    nn.LeakyReLU(),
+                ).cuda(gpu),
+                device_ids=[gpu],
+            )
             if torch.cuda.is_available()
             else nn.Sequential(
                 nn.Linear(self.student_model.module.last_channel, 512),
@@ -126,13 +138,16 @@ class LearnDiversifyEnv(object):
         )
 
         self.p_mu = (
-            DDP(nn.Sequential(
-                nn.Linear(self.student_model.module.last_channel, 512),
-                nn.GELU(),
-                nn.Linear(512, 512),
-                nn.LayerNorm(512),
-                nn.LeakyReLU(),
-            ).cuda(gpu),device_ids=[gpu])
+            DDP(
+                nn.Sequential(
+                    nn.Linear(self.student_model.module.last_channel, 512),
+                    nn.GELU(),
+                    nn.Linear(512, 512),
+                    nn.LayerNorm(512),
+                    nn.LeakyReLU(),
+                ).cuda(gpu),
+                device_ids=[gpu],
+            )
             if torch.cuda.is_available()
             else nn.Sequential(
                 nn.Linear(self.student_model.module.last_channel, 512),
@@ -162,16 +177,26 @@ class LearnDiversifyEnv(object):
         #     mode=yaml['dfd']['mode'],
         # ).cuda(gpu),device_ids=[gpu])
         #
-        self.dfd = DDP(ReviewKD(
-            in_channels=yaml["dfd"]["student_channels"],
-            out_channels=yaml["dfd"]["teacher_channels"],
-            max_mid_channel=512,
-            shapes=yaml["dfd"]["feature_size"],
-            out_shapes=yaml["dfd"]["feature_size"]).cuda(gpu),device_ids=[gpu])
+        self.dfd = DDP(
+            ReviewKD(
+                in_channels=yaml["dfd"]["student_channels"],
+                out_channels=yaml["dfd"]["teacher_channels"],
+                max_mid_channel=512,
+                shapes=yaml["dfd"]["feature_size"],
+                out_shapes=yaml["dfd"]["feature_size"],
+            ).cuda(gpu),
+            device_ids=[gpu],
+        )
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
-        self.freeze_modeules_list = [self.dfd, self.student_model, self.teacher_expand, self.p_mu, self.p_logvar]
+        self.freeze_modeules_list = [
+            self.dfd,
+            self.student_model,
+            self.teacher_expand,
+            self.p_mu,
+            self.p_logvar,
+        ]
         for param in self.teacher_model.parameters():
             param.requires_grad = False
 
@@ -187,9 +212,8 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.load_state_dict(dict["convertor_scheduler"])
             self.scaler.load_state_dict(dict["scaler"])
             self.best_acc = dict["acc"]
-            self.begin_epoch = self.epoch = dict["epoch"]
+            self.begin_epoch = self.epoch = dict["epoch"] + 1
             print(f"successfully load checkpoint from {yaml['resume']}")
-
 
     def reset_parameters(self, modules):
         for module in modules.modules():
@@ -198,12 +222,12 @@ class LearnDiversifyEnv(object):
                 if module.bias is not None:
                     nn.init.constant_(module.bias.data, 0)
 
-    def _freeze_parameters(self,modeules):
+    def _freeze_parameters(self, modeules):
         for module in modeules:
             for i in module.modules():
                 i.requires_grad = False
 
-    def _unfreeze_parameters(self,modeules):
+    def _unfreeze_parameters(self, modeules):
         for module in modeules:
             for i in module.modules():
                 i.requires_grad = False
@@ -285,7 +309,9 @@ class LearnDiversifyEnv(object):
         target = F.one_hot(target, num_classes=self.num_classes).float()
         self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        inputs_max, target_temp = self.convertor.module(input.clone(), target, indexs, 2 * self.epoch)
+        inputs_max, target_temp = self.convertor.module(
+            input.clone(), target, indexs, 2 * self.epoch
+        )
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
@@ -338,7 +364,9 @@ class LearnDiversifyEnv(object):
 
         if not self.only_satge_one:
             self._freeze_parameters(self.freeze_modeules_list)
-            inputs_max, target_temp = self.convertor(input.clone(), target, indexs, 2 * self.epoch + 1 )
+            inputs_max, target_temp = self.convertor(
+                input.clone(), target, indexs, 2 * self.epoch + 1
+            )
             data_aug = torch.cat([inputs_max, input])
             labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
@@ -384,7 +412,7 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd.module(student_tuples,teacher_tuples) * 0.8
+                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
@@ -460,7 +488,7 @@ class LearnDiversifyEnv(object):
                 club_loss,
                 task_loss,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
-            if self.gpu==0:
+            if self.gpu == 0:
                 self.wandb.log(
                     {
                         "top1": top1,
@@ -479,11 +507,11 @@ class LearnDiversifyEnv(object):
             self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
         )
         use_time = round((time.time() - start_time) / 60, 2)
-        if self.gpu==0:
+        if self.gpu == 0:
             self.ff.write(
                 f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss}, min:{use_time}\n"
             )
-        return train_acc, train_loss, self.episode
+        return train_acc, train_loss
 
     @torch.no_grad()
     def run_one_val_epoch(self):
@@ -509,7 +537,7 @@ class LearnDiversifyEnv(object):
             self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
         )
         use_time = round((time.time() - start_time) / 60, 2)
-        if self.gpu==0:
+        if self.gpu == 0:
             self.ff.write(
                 f"epoch:{self.epoch}, test_acc:{test_acc}, test_loss:{test_loss}, min:{use_time}\n"
             )
@@ -526,12 +554,12 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
-        for i in range(self.begin_epoch,self.total_epoch):
+        for i in range(self.begin_epoch, self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
-            ttop1, tloss, _ = self.run_one_train_epoch()
+            ttop1, tloss = self.run_one_train_epoch()
             vtop1 = self.run_one_val_epoch()
             self.scheduler_step()
-            if self.gpu==0:
+            if self.gpu == 0:
                 self.wandb.log(
                     {"train_loss": tloss, "train_top1": ttop1, "val_top1": vtop1}, step=self.epoch
                 )
@@ -539,7 +567,7 @@ class LearnDiversifyEnv(object):
             if self.best_acc < vtop1:
                 self.best_acc = vtop1
             path = self.model_save_path
-            if self.gpu==0:
+            if self.gpu == 0:
                 if not os.path.isdir(path):
                     os.makedirs(path)
                 model_path = os.path.join(
@@ -553,15 +581,15 @@ class LearnDiversifyEnv(object):
                     "optimizer": self.optimizer.state_dict(),
                     "student_model": self.student_model.state_dict(),
                     "p_mu": self.p_mu.state_dict(),
-                    "p_logvar":self.p_logvar.state_dict(),
-                    "dfd":self.dfd.state_dict(),
+                    "p_logvar": self.p_logvar.state_dict(),
+                    "dfd": self.dfd.state_dict(),
                     "convertor": self.convertor.state_dict(),
-                    "convertor_optimizer":self.convertor_optimizer.state_dict(),
+                    "convertor_optimizer": self.convertor_optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                     "convertor_scheduler": self.convertor_scheduler.state_dict(),
                 }
                 torch.save(dict, model_path)
         self.log.flush()
-        if self.gpu==0:
+        if self.gpu == 0:
             self.ff.close()
             self.wandb.finish()

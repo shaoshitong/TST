@@ -529,7 +529,7 @@ class DynamicFeatureDistillation(nn.Module):
         self.swinblocknumber = swinblocknumber
         self.patch_size = patch_size
         assert distill_mode in ["all", "one", "last_two"]
-        assert mode in ["conv","swin"]
+        assert mode in ["conv", "swin"]
         self.distill_mode = distill_mode
 
         if self.distill_mode == "one":
@@ -694,7 +694,7 @@ class DynamicFeatureDistillation(nn.Module):
         Here, we perform a completely random mask
         """
         b, c, h, w = teacher_feature_map.shape
-        patch_size = 7 if self.patch_size==1 and h>7 and h%7==0 else self.patch_size
+        patch_size = 7 if self.patch_size == 1 and h > 7 and h % 7 == 0 else self.patch_size
         soft_mask = torch.rand(1, 1, 1, 1, h // patch_size, w // patch_size).to(
             teacher_feature_map.device
         )

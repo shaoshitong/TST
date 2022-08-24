@@ -5,16 +5,16 @@ import sys
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
+import torch.distributed as dist
+import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.utils.data.distributed
 import torchvision
 import torchvision.transforms as transforms
-import torch.distributed as dist
-import torch.multiprocessing as mp
-import torch.utils.data.distributed
-from torch.nn.parallel import DistributedDataParallel as DDP
 from omegaconf import OmegaConf
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 import wandb
 from Env.Environment2 import *
@@ -94,15 +94,17 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
 
     # TODO: LLA_DFD
     if gpu == 0:
-        os.environ["WANDB_API_KEY"] = '625345833d2e13b7e2c695c406cc01311f39bf40'
+        os.environ["WANDB_API_KEY"] = "625345833d2e13b7e2c695c406cc01311f39bf40"
         os.environ["WANDB_MODE"] = "offline"
         wandb.init(project="LLA_DFD", entity="seushanshan")
-    tnet: nn.Module = torch.nn.DataParallel(getattr(models, yaml_config["tarch"])(
-        num_classes=yaml_config["num_classes"]
-    ).cuda(gpu), device_ids=[gpu])
-    net: nn.Module = DDP(getattr(models, yaml_config["arch"])(
-        num_classes=yaml_config["num_classes"]
-    ).cuda(gpu), device_ids=[gpu])
+    tnet: nn.Module = torch.nn.DataParallel(
+        getattr(models, yaml_config["tarch"])(num_classes=yaml_config["num_classes"]).cuda(gpu),
+        device_ids=[gpu],
+    )
+    net: nn.Module = DDP(
+        getattr(models, yaml_config["arch"])(num_classes=yaml_config["num_classes"]).cuda(gpu),
+        device_ids=[gpu],
+    )
     ROOT = yaml_config["ckpt_root"]
     local_ckpt_path = yaml_config["local_ckpt_path"]
     if yaml_config["tcheckpoint"]:
@@ -170,11 +172,5 @@ if __name__ == "__main__":
     print("multiprocessing_distributed")
     torch.multiprocessing.set_start_method("spawn")
     mp.spawn(
-        main_worker,
-        nprocs=ngpus_per_node,
-        args=(
-            yaml_config,
-            ngpus_per_node,
-            world_size,
-            dist_url
-        ))
+        main_worker, nprocs=ngpus_per_node, args=(yaml_config, ngpus_per_node, world_size, dist_url)
+    )
