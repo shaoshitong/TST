@@ -156,7 +156,7 @@ if __name__ == "__main__":
     os.environ["MASTER_ADDR"] = "127.0.0.1"  #
     os.environ["MASTER_PORT"] = "8888"  #
     world_size = 1
-    port_id = 10000 + np.random.randint(0, 1000)
+    port_id = 10000 + np.random.randint(0, 1000) - 1
     dist_url = "tcp://127.0.0.1:" + str(port_id)
     ngpus_per_node = torch.cuda.device_count()
     world_size = ngpus_per_node * world_size

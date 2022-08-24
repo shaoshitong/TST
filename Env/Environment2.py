@@ -80,7 +80,6 @@ class LearnDiversifyEnv(object):
                 img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
             ).cpu()
         )
-        self.reset_parameters(self.convertor)
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(),
             lr=yaml["sc_lr"],
