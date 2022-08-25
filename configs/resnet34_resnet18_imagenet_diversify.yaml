@@ -21,11 +21,11 @@ LAA:
 img_size:
   224
 sc_lr:
-  0.04
+  0.01
 weights:
   - 1
-  - 1
-  - 1
+  - 0
+  - 0
   - 1
   - 1
   - 1
@@ -49,7 +49,7 @@ log_each:
   100
 optimizer:
   lr:
-    0.4
+    0.1
   type:
     SGD
   weight_decay:
@@ -83,7 +83,7 @@ criticion:
   type:
     KDLoss
   temperature:
-    1
+    4
 augmented_ratio:
   0
 dfd:
@@ -110,7 +110,7 @@ dfd:
   mode:
     conv
 only_stage_one:
-  False
+  True
 ckpt_root:
   "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
 local_ckpt_path:
