@@ -228,6 +228,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         self.C = C
         self.H = H
         self.W = W
+        self.policy = policy
         self.num_train_samples = num_train_samples
         self.tag = 0
         all_policies_set = set()
@@ -241,7 +242,33 @@ class LearningAutoAugment(transforms.AutoAugment):
                 self.policies_set.append(copy.deepcopy(second_policies))
                 all_policies_set.add(second_policies[0])
         self.policies = list(self.policies_set)
-        self.policies.append(("CutMix", None, None))
+        if policy == AutoAugmentPolicy.IMAGENET:
+            self.policies =[('Posterize',p, 8),
+                            ('Solarize',p, 5),
+                            ('Equalize',p, 8),
+                            ('Posterize',p, 7),
+                            ('Equalize',p, 7),
+                            ('Equalize',p, 4),
+                            ('Solarize',p, 3),
+                            ('Posterize',p, 5),
+                            ('Rotate',p, 3),
+                            ('Equalize',p, 8),
+                            ('Rotate',p, 8),
+                            ('Rotate',p, 9),
+                            ('Equalize',p, 7),
+                            ('Invert',p, 4),
+                            ('Color', p, 4),
+                            ('Rotate',p, 8),
+                            ('Color',p, 8),
+                            ('Sharpness',p, 7),
+                            ('ShearX',p, 5),
+                            ('Color',p, 0),
+                            ('Equalize',p, 7),
+                            ('Solarize',p, 5),
+                            ('Invert',p, 4),
+                            ('Color',p, 4),
+                            ('Equalize',p, 8)]
+        # self.policies.append(("CutMix", None, None))
         print(self.policies)
         self.tran = (
             transforms.Compose(
@@ -341,6 +368,8 @@ class LearningAutoAugment(transforms.AutoAugment):
                     img, y = cutmix(img, y, num_classes=y.shape[1])
             results.append(self.tran(img / 255))
             lasbels.append(y)
+        if self.policy == AutoAugmentPolicy.IMAGENET:
+            return results[-1],lasbels[-1]
         results = torch.stack(results, 0)  # P,B,C,H,W
         labels = torch.stack(lasbels, 0)
 
