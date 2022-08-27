@@ -340,11 +340,11 @@ class LearningAutoAugment(transforms.AutoAugment):
                     results.append(self.tran(img / 255))
                     lasbels.append(y)
 
-                    results = torch.stack(results, 0)  # P,B,C,H,W
-                    labels = torch.stack(lasbels, 0)
+                results = torch.stack(results, 0)  # P,B,C,H,W
+                labels = torch.stack(lasbels, 0)
 
-                    self.register_buffer("results",results)
-                    self.register_buffer("labels",labels)
+                self.register_buffer("results",results)
+                self.register_buffer("labels",labels)
             else:
                 results = self.results
                 labels = self.labels
