@@ -241,6 +241,7 @@ def Original_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, tes
             ]
         ),
     )
+    test_sampler = torch.utils.data.distributed.DistributedSampler(testset)
 
     trainloader = torch.utils.data.DataLoader(
         trainset,
@@ -252,6 +253,6 @@ def Original_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, tes
     )
 
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=test_batch_size, shuffle=False, num_workers=num_worker, pin_memory=True
+        testset, batch_size=test_batch_size, sampler=test_sampler, num_workers=num_worker, pin_memory=True
     )
     return trainloader, testloader

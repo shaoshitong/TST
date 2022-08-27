@@ -297,10 +297,12 @@ def Original_DataLoader_C100(data_path, num_worker, train_batch_size=64, test_ba
         num_workers=num_worker,
         pin_memory=(torch.cuda.is_available()),
     )
+
+    test_sampler = torch.utils.data.distributed.DistributedSampler(testset)
     testloader = torch.utils.data.DataLoader(
         testset,
         batch_size=test_batch_size,
-        shuffle=False,
+        sampler=test_sampler,
         num_workers=num_worker,
         pin_memory=(torch.cuda.is_available()),
     )

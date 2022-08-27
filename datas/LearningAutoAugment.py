@@ -353,6 +353,8 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
 
+        results.requires_grad = True
+        labels.requires_grad = True
         P, B, C, H, W = results.shape
         if self.policy == AutoAugmentPolicy.CIFAR10:
             results = results.view(P, B, -1)  # P,B,C*H*W

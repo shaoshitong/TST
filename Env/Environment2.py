@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torchvision import transforms
-
+import torch.distributed as dist
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from losses.ReviewKD import ReviewKD
@@ -57,13 +57,14 @@ class LearnDiversifyEnv(object):
         self.yaml = yaml
         self.wandb = wandb
         self.model_save_path = yaml["model_save_path"]
-        self.log = Log(log_each=yaml["log_each"])
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.gpu = gpu
         self.done = False
         self.best_acc = 0.0
         self.accumuate_count = 0
         self.scaler = torch.cuda.amp.GradScaler()
+        if self.gpu==0:
+            self.log = Log(log_each=yaml["log_each"])
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
         if self.gpu == 0:
             self.ff = open(time_path, "w")
@@ -368,7 +369,6 @@ class LearnDiversifyEnv(object):
                 input.clone(), target, indexs, 2 * self.epoch + 1
             )
             data_aug = torch.cat([inputs_max, input])
-            labels = torch.cat([target_temp, target])
             b, c, h, w = inputs_max.shape
             with torch.cuda.amp.autocast(enabled=True):
                 student_tuples, student_logits = self.student_model.module(data_aug, is_feat=True)
@@ -440,6 +440,11 @@ class LearnDiversifyEnv(object):
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
+        dist.all_reduce(top1,op=dist.ReduceOp.SUM)
+        dist.all_reduce(top5,op=dist.ReduceOp.SUM)
+        top1/=torch.cuda.device_count()
+        top5/=torch.cuda.device_count()
+
         loss = loss_1 + loss_2
         lr = (
             self.scheduler.get_last_lr()
@@ -447,8 +452,8 @@ class LearnDiversifyEnv(object):
             else self.scheduler.lr()
         )
         lr = lr[0]
-
-        self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
+        if self.gpu==0:
+            self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return (
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
@@ -468,6 +473,8 @@ class LearnDiversifyEnv(object):
         t_logits = self.teacher_model(input)
         loss = self.loss(logits, t_logits, target)
         top1, top5 = correct_num(logits, target, topk=(1, 5))
+        top1 = dist.all_reduce(top1,op=dist.ReduceOp.SUM)/torch.cuda.device_count()
+        top5 = dist.all_reduce(top5,op=dist.ReduceOp.SUM)/torch.cuda.device_count()
         return top1.cpu().item(), loss.cpu().item()
 
     def run_one_train_epoch(self):
@@ -477,7 +484,8 @@ class LearnDiversifyEnv(object):
         self.p_logvar.train()
         self.p_mu.train()
         self.convertor.train()
-        self.log.train(len_dataset=len(self.dataloader))
+        if self.gpu==0:
+            self.log.train(len_dataset=len(self.dataloader))
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
@@ -502,10 +510,13 @@ class LearnDiversifyEnv(object):
                     step=self.accumuate_count,
                 )
             self.accumuate_count += 1
-        train_acc, train_loss = (
-            self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
-            self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
-        )
+        if self.gpu==0:
+            train_acc, train_loss = (
+                self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
+                self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
+            )
+        else:
+            train_acc, train_loss = 0, 0
         use_time = round((time.time() - start_time) / 60, 2)
         if self.gpu == 0:
             self.ff.write(
@@ -521,7 +532,8 @@ class LearnDiversifyEnv(object):
         self.p_logvar.eval()
         self.p_mu.eval()
         self.convertor.eval()
-        self.log.eval(len_dataset=len(self.testloader))
+        if self.gpu==0:
+            self.log.eval(len_dataset=len(self.testloader))
         for batch_idx, (input, target) in enumerate(self.testloader):
             input = input.float().cuda()
             target = target.cuda()
@@ -531,11 +543,19 @@ class LearnDiversifyEnv(object):
             torch.cuda.synchronize()
             loss = F.cross_entropy(logits, target, reduction="mean")
             top1, top5 = correct_num(logits, target, topk=(1, 5))
-            self.log(self.student_model, loss.cpu(), top1.cpu(), top5.cpu())
-        test_acc, test_loss = (
-            self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
-            self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
-        )
+            dist.all_reduce(top1, op=dist.ReduceOp.SUM)
+            dist.all_reduce(top5, op=dist.ReduceOp.SUM)
+            top1 /= torch.cuda.device_count()
+            top5 /= torch.cuda.device_count()
+            if self.gpu==0:
+                self.log(self.student_model, loss.cpu(), top1.cpu(), top5.cpu())
+        if self.gpu==0:
+            test_acc, test_loss = (
+                self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
+                self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
+            )
+        else:
+            test_acc, test_loss = 0, 0
         use_time = round((time.time() - start_time) / 60, 2)
         if self.gpu == 0:
             self.ff.write(
@@ -589,7 +609,8 @@ class LearnDiversifyEnv(object):
                     "convertor_scheduler": self.convertor_scheduler.state_dict(),
                 }
                 torch.save(dict, model_path)
-        self.log.flush()
+
         if self.gpu == 0:
+            self.log.flush()
             self.ff.close()
             self.wandb.finish()
