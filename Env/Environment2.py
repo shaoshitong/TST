@@ -208,7 +208,7 @@ class LearnDiversifyEnv(object):
             self.student_model.load_state_dict(dict["student_model"])
             self.p_mu.load_state_dict(dict["p_mu"])
             self.p_logvar.load_state_dict(dict["p_logvar"])
-            self.convertor.load_state_dict(dict["convertor"])
+            self.convertor.load_state_dict(dict["convertor"],strict=False)
             self.convertor_optimizer.load_state_dict(dict["convertor_optimizer"])
             self.convertor_scheduler.load_state_dict(dict["convertor_scheduler"])
             self.scaler.load_state_dict(dict["scaler"])

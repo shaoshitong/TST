@@ -66,8 +66,8 @@ class ABF(nn.Module):
 class ReviewKD(nn.Module):
     def __init__(self, shapes, out_shapes, in_channels, out_channels, max_mid_channel):
         super().__init__()
-        self.shapes = shapes
-        self.out_shapes = out_shapes
+        self.shapes = shapes[::-1]
+        self.out_shapes = out_shapes[::-1]
         in_channels = in_channels
         out_channels = out_channels
         self.max_mid_channel = max_mid_channel
@@ -87,8 +87,7 @@ class ReviewKD(nn.Module):
 
     def forward(self, features_student, features_teacher):
         # get features
-        x = features_student[:-1] + [features_student[-1].unsqueeze(-1).unsqueeze(-1)]
-        x = x[::-1]
+        x = features_student[::-1]
         results = []
         out_features, res_features = self.abfs[0](x[0], out_shape=self.out_shapes[0])
         results.append(out_features)
@@ -97,9 +96,6 @@ class ReviewKD(nn.Module):
         ):
             out_features, res_features = abf(features, res_features, shape, out_shape)
             results.insert(0, out_features)
-        features_teacher = features_teacher[:-1] + [
-            features_teacher[-1].unsqueeze(-1).unsqueeze(-1)
-        ]
         # losses
         loss_reviewkd = hcl_loss(results, features_teacher)
         return loss_reviewkd
