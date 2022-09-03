@@ -21,7 +21,7 @@ LAA:
 img_size:
   224
 sc_lr:
-  0.04
+  0.01
 weights:
   - 1
   - 1
@@ -38,11 +38,9 @@ val_ratio:
 num_worker:
   4
 train_batch_size:
-  1024
+  256
 test_batch_size:
   1024
-reward_accumuate_step:
-  8
 model_save_path:
   ./checkpoints/SAC/
 log_each:
