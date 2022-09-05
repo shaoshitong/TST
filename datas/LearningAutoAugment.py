@@ -31,6 +31,33 @@ class Normalize(nn.Module):
         return x
 
 
+class grl_func(torch.autograd.Function):
+    def __init__(self):
+        super(grl_func, self).__init__()
+
+    @ staticmethod
+    def forward(ctx, x, lambda_):
+        ctx.save_for_backward(lambda_)
+        return x.view_as(x)
+
+    @ staticmethod
+    def backward(ctx, grad_output):
+        lambda_, = ctx.saved_variables
+        grad_input = grad_output.clone()
+        return - lambda_ * grad_input, None
+
+
+class GRL(nn.Module):
+    def __init__(self, lambda_=0.1):
+        super(GRL, self).__init__()
+        self.lambda_ = torch.tensor(lambda_)
+
+    def set_lambda(self, lambda_):
+        self.lambda_ = torch.tensor(lambda_)
+
+    def forward(self, x):
+        return grl_func.apply(x, self.lambda_)
+
 class Flow_Attention(nn.Module):
     # flow attention in normal version
     def __init__(self, d_input, d_model, d_output, n_heads, drop_out=0.05, eps=1e-6):
@@ -252,6 +279,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         self.fc.add_module("relu", nn.ReLU(inplace=True))
         self.fc.add_module("fc2", nn.Linear(512, len(self.policies)))
         self.p = p
+        self.GRL = GRL()
         for param in list(list(self.fc.parameters())):
             param.requires_grad = True
 
@@ -279,6 +307,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         Tensor -> Tensor (to translate)
         """
+
         randperm = torch.arange(len(self.policies))
         with torch.no_grad():
             assert isinstance(img, Tensor), "The input must be Tensor!"
@@ -380,10 +409,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 解决数值不稳定的问题
         self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
         use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
-        if epoch % 2 == 0:
-            attention_vector = use_attention_vector.detach()
-        else:
-            attention_vector = attention_vector
+        attention_vector = use_attention_vector * 0.3 + attention_vector * 0.7
         # TODO: End
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(
@@ -398,22 +424,4 @@ class LearningAutoAugment(transforms.AutoAugment):
         labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
             B, -1
         )
-        return result, labels
-
-#
-# model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()
-# begin = PIL.Image.open("/home/sst/product/RLDCD/output/original28_sample.png").convert('RGB')
-# image = transforms.ToTensor()(begin)
-# print(image.max(), image.min())
-# now_image = transforms.Compose([transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])])(
-#     image).unsqueeze(0)
-# begin.show()
-# output = model(now_image.cuda())
-# output.mul_(torch.Tensor([0.2675, 0.2565, 0.2761])[None, :, None, None].cuda()).add_(
-#                     torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda())
-# output = output * 255
-# torch.clip_(output, 0, 255)
-# output = output.type(torch.uint8).cpu()
-# now_output = transforms.ToPILImage()(output[0])
-# now_output.show()
-# A是使用randperm,B是使用AA的p
+        return self.GRL(result), labels

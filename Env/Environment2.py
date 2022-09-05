@@ -87,17 +87,17 @@ class LearnDiversifyEnv(object):
                 img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
             ).cpu()
         )
-        self.convertor_optimizer = torch.optim.SGD(
-            self.convertor.parameters(),
-            lr=yaml["sc_lr"],
-            momentum=0.9,
-            nesterov=True,
-        )
-        self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
-            self.convertor_optimizer,
-            milestones=yaml["scheduler"]["milestones"],
-            gamma=yaml["scheduler"]["gamma"],
-        )
+        # self.convertor_optimizer = torch.optim.SGD(
+        #     self.convertor.parameters(),
+        #     lr=yaml["sc_lr"],
+        #     momentum=0.9,
+        #     nesterov=True,
+        # )
+        # self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
+        #     self.convertor_optimizer,
+        #     milestones=yaml["scheduler"]["milestones"],
+        #     gamma=yaml["scheduler"]["gamma"],
+        # )
         self.tran = (
             transforms.Compose(
                 [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
@@ -165,6 +165,7 @@ class LearnDiversifyEnv(object):
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
         self.optimizer.add_param_group({"params": self.p_mu.parameters()})
         self.optimizer.add_param_group({"params": self.teacher_expand.parameters()})
+        self.optimizer.add_param_group({"params": self.convertor.parameters()})
         self.weights = yaml["weights"]
 
         # TODO: DFD
@@ -209,8 +210,6 @@ class LearnDiversifyEnv(object):
             self.p_mu.load_state_dict(dict["p_mu"])
             self.p_logvar.load_state_dict(dict["p_logvar"])
             self.convertor.load_state_dict(dict["convertor"],strict=False)
-            self.convertor_optimizer.load_state_dict(dict["convertor_optimizer"])
-            self.convertor_scheduler.load_state_dict(dict["convertor_scheduler"])
             self.scaler.load_state_dict(dict["scaler"])
             self.best_acc = dict["acc"]
             self.begin_epoch = self.epoch = dict["epoch"] + 1
@@ -308,9 +307,8 @@ class LearnDiversifyEnv(object):
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-        self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        inputs_max, target_temp = self.convertor.module(
+        inputs_max, target_temp = self.convertor(
             input.clone(), target, indexs, 2 * self.epoch
         )
         b, c, h, w = inputs_max.shape
@@ -332,7 +330,6 @@ class LearnDiversifyEnv(object):
 
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
-
         # TODO: 2. Lilikehood Loss student and teacher2
         augmented_studnet_mu = student_mu[:b]
         augmented_student_logvar = student_logvar[:b]
@@ -349,11 +346,15 @@ class LearnDiversifyEnv(object):
             with torch.cuda.amp.autocast(enabled=True):
                 dfd_loss = self.dfd(student_tuple, teacher_tuple)
 
+        t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
+        target_loss = - F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
+
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
             self.weights[0] * vanilla_kd_loss
             + self.weights[1] * likeli_loss
             + self.weights[2] * dfd_loss
+            + self.weights[3] * target_loss
         )
         # self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
@@ -361,82 +362,6 @@ class LearnDiversifyEnv(object):
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
-        # TODO: Second Stage
-
-        if not self.only_satge_one:
-            self._freeze_parameters(self.freeze_modeules_list)
-            inputs_max, target_temp = self.convertor(
-                input.clone(), target, indexs, 2 * self.epoch + 1
-            )
-            data_aug = torch.cat([inputs_max, input])
-            b, c, h, w = inputs_max.shape
-            with torch.cuda.amp.autocast(enabled=True):
-                student_tuples, student_logits = self.student_model.module(data_aug, is_feat=True)
-                teacher_tuples, teacher_logits = self.teacher_model.module(data_aug, is_feat=True)
-                student_lambda = student_tuples[-1]
-                student_tuples = student_tuples[:-1]
-                teacher_tuples = teacher_tuples[:-1]
-                student_avgpool = self.avgpool2d(student_lambda)
-                student_logvar = self.p_logvar.module(student_avgpool)
-                student_mu = self.p_mu.module(student_avgpool)
-                student_embedding = self.reparametrize(student_mu, student_logvar)
-
-            # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
-            augmented_student_logvar = student_logvar[:b]
-            augmented_student_mu = student_mu[:b]
-            club_loss = self.Club(
-                augmented_student_mu,
-                augmented_student_logvar,
-                student_embedding[b:],
-            )
-
-            # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
-            student_logits = student_logits.float()
-            teacher_logits = teacher_logits.float()
-            # TODO: 仅仅只有二分之一，因此需要扩张
-            aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
-            t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
-            distance1 = (
-                -F.kl_div(
-                    (aug_logits / self.yaml["criticion"]["temperature"]).log_softmax(1),
-                    (t_aug_logits / self.yaml["criticion"]["temperature"]).softmax(1),
-                    reduction="batchmean",
-                )
-                * (self.yaml["criticion"]["temperature"] ** 2)
-            )
-            distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
-            task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
-
-            # TODO: 4 negative dfd loss
-            if self.weights[3] == 0:
-                ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
-            else:
-                with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples) * 0.8
-
-            # TODO: 5.to Combine all Loss in stage two
-            loss_2 = (
-                +self.weights[3] * ne_dfd_loss
-                + self.weights[4] * club_loss
-                + self.weights[5] * task_loss
-            )
-
-            # TODO: update params
-            self.convertor_optimizer.zero_grad()
-            # self.optimizer.zero_grad()
-            self.scaler.scale(loss_2).backward()
-            nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
-            self.scaler.step(self.convertor_optimizer)
-            self.scaler.update()
-        else:
-            ne_dfd_loss = torch.Tensor([0.0]).cuda(self.gpu)
-            club_loss = torch.Tensor([0.0]).cuda(self.gpu)
-            task_loss = torch.Tensor([0.0]).cuda(self.gpu)
-            loss_2 = (
-                +self.weights[3] * ne_dfd_loss
-                + self.weights[4] * club_loss
-                + self.weights[5] * task_loss
-            )
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
@@ -445,7 +370,7 @@ class LearnDiversifyEnv(object):
         top1/=torch.cuda.device_count()
         top5/=torch.cuda.device_count()
 
-        loss = loss_1 + loss_2
+        loss = loss_1
         lr = (
             self.scheduler.get_last_lr()
             if hasattr(self.scheduler, "get_lr")
@@ -458,10 +383,8 @@ class LearnDiversifyEnv(object):
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
             dfd_loss.cpu().item(),
-            ne_dfd_loss.cpu().item(),
             likeli_loss.cpu().item(),
-            club_loss.cpu().item(),
-            task_loss.cpu().item(),
+            target_loss.cpu().item()
         )
 
     @torch.no_grad()
@@ -491,10 +414,9 @@ class LearnDiversifyEnv(object):
                 top1,
                 vanilla_kd_loss,
                 dfd_loss,
-                ne_dfd_loss,
                 likeli_loss,
-                club_loss,
-                task_loss,
+                target_loss,
+
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
                 self.wandb.log(
@@ -502,10 +424,8 @@ class LearnDiversifyEnv(object):
                         "top1": top1,
                         "vanilla_kd_loss": vanilla_kd_loss,
                         "dfd_loss": dfd_loss,
-                        "ne_dfd_loss": ne_dfd_loss,
                         "likeli_loss": likeli_loss,
-                        "club_loss": club_loss,
-                        "task_loss": task_loss,
+                        "target_loss": target_loss,
                     },
                     step=self.accumuate_count,
                 )
@@ -568,10 +488,6 @@ class LearnDiversifyEnv(object):
             self.scheduler.step()
         elif isinstance(self.scheduler, timm.scheduler.scheduler.Scheduler):
             self.scheduler.step(self.epoch)
-        if isinstance(self.convertor_scheduler, torch.optim.lr_scheduler.MultiStepLR):
-            self.convertor_scheduler.step()
-        elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
-            self.convertor_scheduler.step(self.epoch)
 
     def training_in_all_epoch(self):
         for i in range(self.begin_epoch, self.total_epoch):
@@ -604,9 +520,7 @@ class LearnDiversifyEnv(object):
                     "p_logvar": self.p_logvar.state_dict(),
                     "dfd": self.dfd.state_dict(),
                     "convertor": self.convertor.state_dict(),
-                    "convertor_optimizer": self.convertor_optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
-                    "convertor_scheduler": self.convertor_scheduler.state_dict(),
                 }
                 torch.save(dict, model_path)
 
