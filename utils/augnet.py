@@ -161,5 +161,5 @@ class SmallImageAugNet(nn.Module):
         )
 
     def forward(self, x, y, indexs, epoch):
-        x, y = self.learningautoaugment(x, y, indexs, epoch)
-        return x, y
+        x, y, attention = self.learningautoaugment(x, y, indexs, epoch)
+        return x, y, attention

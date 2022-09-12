@@ -1,5 +1,6 @@
 import os
 import time
+import wandb
 
 import timm.scheduler.scheduler
 import torch
@@ -87,6 +88,7 @@ class LearnDiversifyEnv(object):
                 img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
             ).cpu()
         )
+
         self.convertor_optimizer = torch.optim.SGD(
             self.convertor.parameters(),
             lr=yaml["sc_lr"],
@@ -310,7 +312,7 @@ class LearnDiversifyEnv(object):
         target = F.one_hot(target, num_classes=self.num_classes).float()
         self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        inputs_max, target_temp = self.convertor.module(
+        inputs_max, target_temp,attention_index = self.convertor.module(
             input.clone(), target, indexs, 2 * self.epoch
         )
         b, c, h, w = inputs_max.shape
@@ -358,14 +360,13 @@ class LearnDiversifyEnv(object):
         # self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
-        nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
         # TODO: Second Stage
 
         if not self.only_satge_one:
             self._freeze_parameters(self.freeze_modeules_list)
-            inputs_max, target_temp = self.convertor(
+            inputs_max, target_temp, _ = self.convertor(
                 input.clone(), target, indexs, 2 * self.epoch + 1
             )
             data_aug = torch.cat([inputs_max, input])
@@ -425,7 +426,6 @@ class LearnDiversifyEnv(object):
             self.convertor_optimizer.zero_grad()
             # self.optimizer.zero_grad()
             self.scaler.scale(loss_2).backward()
-            nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
             self.scaler.step(self.convertor_optimizer)
             self.scaler.update()
         else:
@@ -462,6 +462,7 @@ class LearnDiversifyEnv(object):
             likeli_loss.cpu().item(),
             club_loss.cpu().item(),
             task_loss.cpu().item(),
+            attention_index
         )
 
     @torch.no_grad()
@@ -474,7 +475,6 @@ class LearnDiversifyEnv(object):
         loss = self.loss(logits, t_logits, target)
         top1, top5 = correct_num(logits, target, topk=(1, 5))
         top1 = dist.all_reduce(top1,op=dist.ReduceOp.SUM)/torch.cuda.device_count()
-        top5 = dist.all_reduce(top5,op=dist.ReduceOp.SUM)/torch.cuda.device_count()
         return top1.cpu().item(), loss.cpu().item()
 
     def run_one_train_epoch(self):
@@ -495,8 +495,11 @@ class LearnDiversifyEnv(object):
                 likeli_loss,
                 club_loss,
                 task_loss,
+                attention_index,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
+                if batch_idx==0:
+                    self.ff.write(str(attention_index.cpu().numpy().tolist()) + "\n")
                 self.wandb.log(
                     {
                         "top1": top1,

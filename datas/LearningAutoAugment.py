@@ -131,6 +131,8 @@ def _apply_op(
             shear=[math.degrees(math.atan(magnitude)), 0.0],
             interpolation=interpolation,
             fill=fill,
+            center=[0, 0],
+
         )
     elif op_name == "ShearY":
         # magnitude should be arctan(magnitude)
@@ -143,6 +145,8 @@ def _apply_op(
             shear=[0.0, math.degrees(math.atan(magnitude))],
             interpolation=interpolation,
             fill=fill,
+            center=[0, 0],
+
         )
     elif op_name == "TranslateX":
         img = F.affine(
@@ -322,20 +326,18 @@ class LearningAutoAugment(transforms.AutoAugment):
                     policy = self.policies[randindex]
                     (op_name, p, magnitude_id) = policy
                     p = self.p
-                    if op_name != "CutMix":
-                        magnitudes, signed = op_meta[op_name]
-                        magnitude = (
-                            float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
-                        )
-                        if signed and sign:
-                            magnitude *= -1.0
-                        index = torch.LongTensor(random.sample(range(b),int(p*b))).to(img.device)
-                        if index.shape[0]>0:
-                            img[index] = _apply_op(
-                                img[index], op_name, magnitude, interpolation=self.interpolation, fill=fill
+                    if prob <= p:
+                        if op_name != "CutMix":
+                            magnitudes, signed = op_meta[op_name]
+                            magnitude = (
+                                float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
                             )
-                    else:
-                        if prob <= p:
+                            if signed and sign:
+                                magnitude *= -1.0
+                            img = _apply_op(
+                                img, op_name, magnitude, interpolation=self.interpolation, fill=fill
+                            )
+                        else:
                             img, y = cutmix(img, y, num_classes=y.shape[1])
                     results.append(self.tran(img / 255))
                     lasbels.append(y)
@@ -398,22 +400,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
             B, -1
         )
-        return result, labels
+        return result, labels, attention
+        _vector.sum(1).squeeze()
 
 #
-# model = LearningAutoAugment(policy=AutoAugmentPolicy.CIFAR10, C=3, H=32, W=32, alpha=0.0).cuda()
-# begin = PIL.Image.open("/home/sst/product/RLDCD/output/original28_sample.png").convert('RGB')
-# image = transforms.ToTensor()(begin)
-# print(image.max(), image.min())
-# now_image = transforms.Compose([transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])])(
-#     image).unsqueeze(0)
-# begin.show()
-# output = model(now_image.cuda())
-# output.mul_(torch.Tensor([0.2675, 0.2565, 0.2761])[None, :, None, None].cuda()).add_(
-#                     torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda())
-# output = output * 255
-# torch.clip_(output, 0, 255)
-# output = output.type(torch.uint8).cpu()
-# now_output = transforms.ToPILImage()(output[0])
-# now_output.show()
-# A是使用randperm,B是使用AA的p
