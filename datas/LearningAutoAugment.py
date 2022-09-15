@@ -400,7 +400,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
             B, -1
         )
-        return result, labels, attention
-        _vector.sum(1).squeeze()
+        return result, labels, attention_vector.mean(1).squeeze()
 
 #
