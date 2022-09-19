@@ -1,17 +1,17 @@
 import copy
+import random
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
+from torch.quantization import fuse_conv_bn
 class Translate(nn.Module):
-    def __init__(self,in_channel,out_channel):
+    def __init__(self,in_channel,out_channel,mid_channel):
         super(Translate, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channel,out_channel,(1,1),(1,1),(0,0),bias=False),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(out_channel)
+                nn.Conv2d(in_channel, out_channel,(1,1),(1,1),(0,0),bias=False),
+                nn.BatchNorm2d(out_channel)
         )
     def forward(self,x,y):
         x = self.conv1(x)
@@ -33,28 +33,43 @@ class TWReviewKD(nn.Module):
         translate_teacher_2 = nn.ModuleList()
         translate_teacher_3 = nn.ModuleList()
 
+        mid_channel = min(512,out_channels[-1])
         for in_channel in in_channels:
-            translate_teacher_1.append(Translate(in_channel,out_channels[0]))
-            translate_teacher_2.append(Translate(in_channel,out_channels[1]))
-            translate_teacher_3.append(Translate(in_channel,out_channels[2]))
+            translate_teacher_1.append(Translate(in_channel,out_channels[0],mid_channel))
+            translate_teacher_2.append(Translate(in_channel,out_channels[1],mid_channel))
+            translate_teacher_3.append(Translate(in_channel,out_channels[2],mid_channel))
+
 
         self.translate_teacher_1=translate_teacher_1
         self.translate_teacher_2=translate_teacher_2
         self.translate_teacher_3=translate_teacher_3
 
+        self.out_embeddings=nn.ModuleList([])
+        for out_channel in out_channels:
+            self.out_embeddings.append(
+                nn.Sequential(nn.Conv2d(out_channel,out_channel,(3,3),(1,1),(1,1),bias=False),
+                              nn.BatchNorm2d(out_channel)))
+
+        self.linear1=nn.Linear(4,3)
+        self.linear2=nn.Linear(4,3)
+        self.linear3=nn.Linear(4,3)
+
+        self.iter_number=0
 
     def forward(self, features_student, features_teacher):
         # get features
-        features_student = features_student[:3]
-        features_teacher = features_teacher[:3]
+        features_student = [i for i in features_student[:3]]
+        features_teacher = [i for i in features_teacher[:3]]
 
-        fkd_student_weight=[self.fkd_matrix(i) for i in features_student]
+
         fkd_teacher_weight=[self.fkd_matrix(i) for i in features_teacher]
+        fkd_student_weight=[self.fkd_matrix(i) for i in features_student]
 
+        # print("teacher",fkd_teacher_weight,"student",fkd_student_weight)
+        self.iter_number+=1
         tmp_teacher_1=[]
         tmp_teacher_2=[]
         tmp_teacher_3=[]
-
         for feature,module in zip(features_student,self.translate_teacher_1):
             tmp_teacher_1.append(module(feature,features_teacher[0]))
         for feature,module in zip(features_student,self.translate_teacher_2):
@@ -62,38 +77,36 @@ class TWReviewKD(nn.Module):
         for feature,module in zip(features_student,self.translate_teacher_3):
             tmp_teacher_3.append(module(feature,features_teacher[2]))
 
-        tmp_teacher_1_weight=self.compute_weight(fkd_teacher_weight[0],
-                                                 fkd_student_weight[0],
-                                                 fkd_student_weight[1],
-                                                 fkd_student_weight[2])
+
+        tmp_teacher_1_weight=torch.softmax(
+            self.linear1(
+                torch.stack(
+                    [fkd_student_weight[0],fkd_student_weight[1],fkd_student_weight[2],fkd_teacher_weight[0]])),0)
 
         teacher_1=(torch.stack(tmp_teacher_1,0) * tmp_teacher_1_weight.view(-1,1,1,1,1)).sum(0)
-        tmp_teacher_2_weight=self.compute_weight(fkd_teacher_weight[1],
-                                                 fkd_student_weight[0],
-                                                 fkd_student_weight[1],
-                                                 fkd_student_weight[2])
+
+        tmp_teacher_2_weight=torch.softmax(
+            self.linear2(
+                torch.stack(
+                    [fkd_student_weight[0],fkd_student_weight[1],fkd_student_weight[2],fkd_teacher_weight[1]])),0)
 
         teacher_2=(torch.stack(tmp_teacher_2,0) * tmp_teacher_2_weight.view(-1,1,1,1,1)).sum(0)
-        tmp_teacher_3_weight=self.compute_weight(fkd_teacher_weight[2],
-                                                 fkd_student_weight[0],
-                                                 fkd_student_weight[1],
-                                                 fkd_student_weight[2])
+
+        tmp_teacher_3_weight=torch.softmax(
+            self.linear3(
+                torch.stack(
+                    [fkd_student_weight[0],fkd_student_weight[1],fkd_student_weight[2],fkd_teacher_weight[2]])),0)
 
         teacher_3=(torch.stack(tmp_teacher_3,0) * tmp_teacher_3_weight.view(-1,1,1,1,1)).sum(0)
         # losses
-        loss = self.hcl_loss([teacher_1,teacher_2,teacher_3],features_teacher)
+        if random.random()>0.99:
+            print(tmp_teacher_1_weight,tmp_teacher_2_weight,tmp_teacher_3_weight)
+        student_out_embeddings=[]
+        for feature_map,embedding in zip([teacher_1,teacher_2,teacher_3],self.out_embeddings):
+            student_out_embeddings.append(embedding(feature_map))
+        loss = self.hcl_loss(student_out_embeddings,features_teacher)
         return loss
 
-    def compute_weight(self,s,t1,t2,t3,tem=0.07):
-        d1=-(s-t1).abs()/tem
-        d2=-(s-t2).abs()/tem
-        d3=-(s-t3).abs()/tem
-        d1=d1.item()
-        d2=d2.item()
-        d3=d3.item()
-
-        weight=torch.softmax(torch.Tensor([d1,d2,d3]).to(s.device),0)
-        return weight
 
     def fkd_matrix(self,feature_map):
         feature_map = F.adaptive_avg_pool2d(feature_map,(1,1))

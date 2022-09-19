@@ -88,6 +88,7 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
     dist.init_process_group(
         backend=dist_backend, init_method=dist_url, world_size=world_size, rank=rank
     )
+    set_random_seed(rank)
     torch.cuda.set_device(gpu)
     yaml_config["train_batch_size"] = int(yaml_config["train_batch_size"] / ngpus_per_node)
     yaml_config["test_batch_size"] = int(yaml_config["test_batch_size"] / ngpus_per_node)
@@ -160,17 +161,16 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.fastest = True
-    set_random_seed(0)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_devices
     os.environ["MASTER_ADDR"] = "127.0.0.1"  #
     os.environ["MASTER_PORT"] = "8888"  #
     world_size = 1
-    port_id = 10000 + np.random.randint(0, 1000) + int(args.cuda_devices[0])
+    port_id = 10002 + np.random.randint(0, 1000) + int(args.cuda_devices[0])
     dist_url = "tcp://127.0.0.1:" + str(port_id)
     ngpus_per_node = torch.cuda.device_count()
     world_size = ngpus_per_node * world_size
     print("multiprocessing_distributed")
     torch.multiprocessing.set_start_method("spawn")
-    mp.spawn(
+    mp.spawn( # Left 2: softmax weight=1 Right 2: softmax weight=2
         main_worker, nprocs=ngpus_per_node, args=(yaml_config, ngpus_per_node, world_size, dist_url)
     )

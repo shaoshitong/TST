@@ -12,7 +12,7 @@ from torchvision import transforms
 import torch.distributed as dist
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from losses.TWReviewKD import TWReviewKD
+from losses.ReviewKD import ReviewKD
 from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 
@@ -181,7 +181,7 @@ class LearnDiversifyEnv(object):
         # ).cuda(gpu),device_ids=[gpu])
         #
         self.dfd = DDP(
-            TWReviewKD(
+            ReviewKD(
                 in_channels=yaml["dfd"]["student_channels"],
                 out_channels=yaml["dfd"]["teacher_channels"],
                 max_mid_channel=512,

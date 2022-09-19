@@ -11,18 +11,6 @@ def hcl_loss(fstudent, fteacher):
     p_list=[]
     for fs, ft in zip(fstudent, fteacher):
         n, c, h, w = fs.shape
-        now_fs=fs.view(n,c,-1).mean(-1)
-        now_ft=ft.view(n,c,-1).mean(-1)# TODO: norm->mean
-        now_fs=torch.argsort(now_fs,1).view(n,c,1,1).expand_as(fs)
-        now_ft=torch.argsort(now_ft,1).view(n,c,1,1).expand_as(ft)
-        fs=torch.gather(fs,1,index=now_fs)
-        ft=torch.gather(ft,1,index=now_ft)
-        now_fs=fs.view(n,c,-1).norm(p=2,dim=-1)
-        now_ft=ft.view(n,c,-1).norm(p=2,dim=-1)
-        now_fs=torch.argsort(now_fs,1)
-        now_ft=torch.argsort(now_ft,1)
-        p=(now_ft - now_fs).float().abs().mean().item()
-        p_list.append(p)
         loss = F.mse_loss(fs, ft, reduction="mean")
         cnt = 1.0
         tot = 1.0
@@ -126,4 +114,4 @@ class ReviewKD(nn.Module):
             results.insert(0, out_features)
         # losses
         loss_reviewkd , p= hcl_loss(results, features_teacher)
-        return loss_reviewkd, p
+        return loss_reviewkd
