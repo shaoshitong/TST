@@ -8,7 +8,6 @@ from einops import rearrange
 
 def hcl_loss(fstudent, fteacher):
     loss_all = 0.0
-    p_list=[]
     for fs, ft in zip(fstudent, fteacher):
         n, c, h, w = fs.shape
         loss = F.mse_loss(fs, ft, reduction="mean")
@@ -24,7 +23,7 @@ def hcl_loss(fstudent, fteacher):
             tot += cnt
         loss = loss / tot
         loss_all = loss_all + loss
-    return loss_all,p_list
+    return loss_all
 
 
 class ABF(nn.Module):
@@ -40,7 +39,7 @@ class ABF(nn.Module):
         )
         if fuse:
             self.att_conv = nn.Sequential(
-                nn.Conv2d(mid_channel * 2, 1, kernel_size=4, stride=4),
+                nn.Conv2d(mid_channel * 2, 2, kernel_size=1, stride=1),
                 nn.Sigmoid(),
             )
         else:
@@ -53,12 +52,11 @@ class ABF(nn.Module):
         # transform student features
         x = self.conv1(x)
         if self.att_conv is not None:
-            # upsample residual features
             y = F.interpolate(y, (shape, shape), mode="nearest")
             # fusion
             z = torch.cat([x, y], dim=1)
-            ratio = self.att_conv(z).mean(0).view(1, 1, 1, 1, h // 4, w // 4)
-            x = self.mix_student_and_teacher(x, y, ratio)
+            z = self.att_conv(z)
+            x = x * z[:, 0].view(n, 1, h, w) + y * z[:, 1].view(n, 1, h, w)
         if x.shape[-1] != out_shape:
             x = F.interpolate(x, (out_shape, out_shape), mode="nearest")
         y = self.conv2(x)
@@ -113,5 +111,5 @@ class ReviewKD(nn.Module):
             out_features, res_features = abf(features, res_features, shape, out_shape)
             results.insert(0, out_features)
         # losses
-        loss_reviewkd , p= hcl_loss(results, features_teacher)
+        loss_reviewkd = hcl_loss(results, features_teacher)
         return loss_reviewkd

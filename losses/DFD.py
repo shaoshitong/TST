@@ -434,13 +434,13 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, p_shakedrop=1.0):
         super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
-
-        out = self.bn1(x)
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.shake_drop(out)
         shortcut = x
         featuremap_size = out.size()[2:4]
@@ -486,7 +486,7 @@ class DynamicFeatureDistillation(nn.Module):
         features_size: tuple,
         teacher_channels: tuple,
         student_channels: tuple,
-        patch_size=4,
+        patch_size=1,
         swinblocknumber=[1,1,1],
         distill_mode="all",
         mode="conv",
@@ -673,7 +673,7 @@ class DynamicFeatureDistillation(nn.Module):
         Here, we perform a completely random mask
         """
         b, c, h, w = teacher_feature_map.shape
-        patch_size = 7 if self.patch_size == 1 and h > 7 and h % 7 == 0 else self.patch_size
+        patch_size = 7 if self.patch_size == 1 and h > 7 and h % 7 == 0 else 4
         soft_mask = torch.rand(1, 1, 1, 1, h // patch_size, w // patch_size).to(
             teacher_feature_map.device
         )
@@ -749,18 +749,6 @@ class DynamicFeatureDistillation(nn.Module):
             result.append(f)
         return result
 
-    def kl_loss(self, teacher_logits, student_logits, targets, temperature=1):
-        kl_loss = 0.0
-        for teacher_logit, student_logit in zip(teacher_logits, student_logits):
-            a = (temperature ** 2) * F.kl_div(
-                torch.log_softmax(student_logit / temperature, 1),
-                torch.softmax(teacher_logit / temperature, 1),
-                reduction="batchmean",
-            )
-            b = self.cross(teacher_logit, targets)
-            kl_loss += a + b
-        return kl_loss
-
     def review_knowledge(self, teacher_feature_maps, student_feature_maps):
         new_teacher_feature_maps = []
         new_student_feature_maps = []
@@ -779,7 +767,6 @@ class DynamicFeatureDistillation(nn.Module):
                         F.interpolate(res_feature_map[1], size=(h, w), mode="nearest")
                     ),
                 ]
-            if ite > 0:
                 z = torch.cat([teacher_feature_map, res_feature_map[0]], dim=1)
                 z = self.ABF_teacher[-ite](z)
                 new_teacher_feature_map = teacher_feature_map * z[:, 0].view(
@@ -802,7 +789,7 @@ class DynamicFeatureDistillation(nn.Module):
 
         return new_teacher_feature_maps[::-1], new_student_feature_maps[::-1]
 
-    def forward(self, teacher_feature_maps, student_feature_maps, targets) -> torch.Tensor:
+    def forward(self, teacher_feature_maps, student_feature_maps) -> torch.Tensor:
         teacher_feature_maps = teacher_feature_maps[self.distill_number :]
         student_feature_maps = student_feature_maps[self.distill_number :]
 
@@ -850,23 +837,9 @@ class DynamicFeatureDistillation(nn.Module):
         for teacher_feature_map, student_feature_map in zip(
             alignment_teacher_feature_maps, student_feature_maps
         ):
-            b, c, h, w = student_feature_map.shape
-            CKA = (
-                linear_CKA(
-                    self.flatten(teacher_feature_map[: b // 2]),
-                    self.flatten(teacher_feature_map[b // 2 :]),
-                ).item()
-                * 2
-            )
-            loss1 = (
-                F.mse_loss(
-                    teacher_feature_map[: b // 2], student_feature_map[: b // 2], reduction="mean"
+            dfd_loss +=  F.mse_loss(
+                    teacher_feature_map, student_feature_map, reduction="mean"
                 )
-            )
-            loss2 = F.mse_loss(
-                teacher_feature_map[b // 2 :], student_feature_map[b // 2 :], reduction="mean"
-            )
-            dfd_loss += (loss1 + loss2) / 2
         return dfd_loss
 
 
@@ -876,4 +849,7 @@ class DynamicFeatureDistillation(nn.Module):
 #     T = [torch.randn(2, 16, 32, 32).cuda(), torch.randn(2, 32, 16, 16).cuda(), torch.randn(2, 64, 8, 8).cuda()]
 #     S = [torch.randn(2, 8, 32, 32).cuda(), torch.randn(2, 16, 16, 16).cuda(), torch.randn(2, 32, 8, 8).cuda()]
 #     loss = dpk(T, S)
-#     print(loss)
+#     loss.backward()
+#     for name,parameter in dpk.named_parameters():
+#         if parameter.grad ==None:
+#             print(name,parameter.shape)

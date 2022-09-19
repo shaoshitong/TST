@@ -13,6 +13,7 @@ import torch.distributed as dist
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from losses.ReviewKD import ReviewKD
+from losses.DFD import DynamicFeatureDistillation
 from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 
