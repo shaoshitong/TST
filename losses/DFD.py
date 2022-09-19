@@ -436,30 +436,11 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(
-            planes, (planes * 1), kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.bn3 = nn.BatchNorm2d((planes * 1))
-        self.conv3 = nn.Conv2d(
-            (planes * 1), planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False
-        )
-        self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
-        self.relu = nn.ReLU(inplace=True)
-        self.stride = stride
         self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
 
         out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn3(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn4(out)
         out = self.shake_drop(out)
         shortcut = x
         featuremap_size = out.size()[2:4]
@@ -479,7 +460,6 @@ class Bottleneck(nn.Module):
             out = out + torch.cat((shortcut, padding), 1)
         else:
             out = out + shortcut
-
         return out
 
 
@@ -494,7 +474,7 @@ def hcl_loss(fs, ft, cka=1):
         tmpfs = F.adaptive_avg_pool2d(fs, (l, l))
         tmpft = F.adaptive_avg_pool2d(ft, (l, l))
         cnt /= 2.0
-        loss += F.mse_loss(tmpfs, tmpft, reduction="mean") * cnt * cka
+        loss += F.mse_loss(tmpfs, tmpft, reduction="mean") * cnt
         tot += cnt
     loss = loss / tot
     return loss
