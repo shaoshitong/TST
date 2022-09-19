@@ -487,9 +487,8 @@ class DynamicFeatureDistillation(nn.Module):
         teacher_channels: tuple,
         student_channels: tuple,
         patch_size=4,
-        swinblocknumber=[4, 3, 2],
+        swinblocknumber=[1,1,1],
         distill_mode="all",
-        num_classes=100,
         mode="conv",
     ):
         """
@@ -863,7 +862,6 @@ class DynamicFeatureDistillation(nn.Module):
                 F.mse_loss(
                     teacher_feature_map[: b // 2], student_feature_map[: b // 2], reduction="mean"
                 )
-                * CKA
             )
             loss2 = F.mse_loss(
                 teacher_feature_map[b // 2 :], student_feature_map[b // 2 :], reduction="mean"
