@@ -25,7 +25,7 @@ sc_lr:
 weights:
   - 1
   - 1
-  - 1
+  - 0
   - 0
   - 1
   - 1
@@ -91,7 +91,7 @@ augmented_ratio:
 
 dfd:
   patch_size:
-    4
+    1
   feature_size:
     - 32
     - 16
@@ -107,9 +107,9 @@ dfd:
   distill_mode:
     all
   swinblocknumber:
-    - 2
-    - 2
-    - 2
+    - 1
+    - 1
+    - 1
   mode:
     conv
 only_stage_one:
