@@ -1,2 +1,14 @@
-# RLDCD
-Using Reinforcement Learning to Select Appropriate Samples to Assist Distillation
+## LLACD
+Using Learning Limit Augmentation to Select Appropriate Samples to Assist Distillation
+
+## install
+
+```bash
+conda env create -f environment.yaml
+source activate llacd
+```
+## run
+
+```bash
+python train_diversify.py --config_file configs/{name} --cuda_devices 0,1,2,3,4,5,6,7
+```
