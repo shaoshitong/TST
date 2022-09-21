@@ -16,7 +16,6 @@ from torchvision.transforms.autoaugment import (
     List,
     Optional,
     Tensor,
-    Tuple,
 )
 
 from datas.Augmentation import cutmix

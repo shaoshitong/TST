@@ -99,8 +99,8 @@ class TWReviewKD(nn.Module):
 
         teacher_3=(torch.stack(tmp_teacher_3,0) * tmp_teacher_3_weight.view(-1,1,1,1,1)).sum(0)
         # losses
-        if random.random()>0.99:
-            print(tmp_teacher_1_weight,tmp_teacher_2_weight,tmp_teacher_3_weight)
+        # if random.random()>0.99:
+        #     print(tmp_teacher_1_weight,tmp_teacher_2_weight,tmp_teacher_3_weight)
         student_out_embeddings=[]
         for feature_map,embedding in zip([teacher_1,teacher_2,teacher_3],self.out_embeddings):
             student_out_embeddings.append(embedding(feature_map))
