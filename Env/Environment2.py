@@ -414,7 +414,7 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples) * 0.8
+                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples,alignment_ts=True) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
@@ -594,10 +594,16 @@ class LearnDiversifyEnv(object):
             if self.gpu == 0:
                 if not os.path.isdir(path):
                     os.makedirs(path)
-                model_path = os.path.join(
-                    self.model_save_path,
-                    f"_epoch_{i}_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}",
-                )
+                if i==self.total_epoch-1:
+                    model_path = os.path.join(
+                        self.model_save_path,
+                        f"final_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}.pth",
+                    )
+                else:
+                    model_path = os.path.join(
+                        self.model_save_path,
+                        f"epoch_{i}_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}.pth",
+                    )
                 dict = {
                     "epoch": self.epoch,
                     "acc": vtop1,

@@ -88,7 +88,8 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
     dist.init_process_group(
         backend=dist_backend, init_method=dist_url, world_size=world_size, rank=rank
     )
-    set_random_seed(rank)
+
+    set_random_seed(rank + np.random.randint(0, 1000))
     torch.cuda.set_device(gpu)
     yaml_config["train_batch_size"] = int(yaml_config["train_batch_size"] / ngpus_per_node)
     yaml_config["test_batch_size"] = int(yaml_config["test_batch_size"] / ngpus_per_node)
