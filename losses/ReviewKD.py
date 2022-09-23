@@ -61,20 +61,20 @@ class ABF(nn.Module):
             x = F.interpolate(x, (out_shape, out_shape), mode="nearest")
         y = self.conv2(x)
         return y, x
-
-    def mix_student_and_teacher(
-            self, feature_map1, feature_map2, soft_mask,
-    ) -> torch.Tensor:
-        """
-        Here, we perform a completely random mask
-        """
-        b, c, h, w = feature_map1.shape
-        patch_size = 7 if feature_map1.shape[-1] % 7 == 0 else 4
-        soft_mask = soft_mask.expand(-1, -1, patch_size, patch_size, -1, -1)
-        soft_mask = rearrange(soft_mask, "b c p q h w -> b c (p h) (q w)")
-        hard_mask = soft_mask > torch.rand_like(soft_mask).to(soft_mask.device)
-        new_feature_map = soft_mask * feature_map1 + (1 - soft_mask) * feature_map2
-        return torch.where(hard_mask, feature_map1, feature_map2).detach() + new_feature_map - new_feature_map.detach()
+    #
+    # def mix_student_and_teacher(
+    #         self, feature_map1, feature_map2, soft_mask,
+    # ) -> torch.Tensor:
+    #     """
+    #     Here, we perform a completely random mask
+    #     """
+    #     b, c, h, w = feature_map1.shape
+    #     patch_size = 7 if feature_map1.shape[-1] % 7 == 0 else 4
+    #     soft_mask = soft_mask.expand(-1, -1, patch_size, patch_size, -1, -1)
+    #     soft_mask = rearrange(soft_mask, "b c p q h w -> b c (p h) (q w)")
+    #     hard_mask = soft_mask > torch.rand_like(soft_mask).to(soft_mask.device)
+    #     new_feature_map = soft_mask * feature_map1 + (1 - soft_mask) * feature_map2
+    #     return torch.where(hard_mask, feature_map1, feature_map2).detach() + new_feature_map - new_feature_map.detach()
 
 
 class ReviewKD(nn.Module):
@@ -99,7 +99,7 @@ class ReviewKD(nn.Module):
             )
         self.abfs = abfs[::-1]
 
-    def forward(self, features_student, features_teacher):
+    def forward(self, features_student, features_teacher, alignment_ts=False):
         # get features
         x = features_student[::-1]
         results = []
@@ -112,4 +112,11 @@ class ReviewKD(nn.Module):
             results.insert(0, out_features)
         # losses
         loss_reviewkd = hcl_loss(results, features_teacher)
+
+        if alignment_ts:
+            loss_super = 0.
+            for feature in features_teacher:
+                b, c, h, w = feature.shape
+                loss_super += F.mse_loss(feature[:b // 2], feature[b // 2:])
+            return - loss_super * 0.1 + loss_reviewkd
         return loss_reviewkd

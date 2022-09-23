@@ -171,26 +171,26 @@ class LearnDiversifyEnv(object):
         self.weights = yaml["weights"]
 
         # TODO: DFD
-        # self.dfd = DDP(DynamicFeatureDistillation(
-        #     features_size=yaml["dfd"]["feature_size"],
-        #     teacher_channels=yaml["dfd"]["teacher_channels"],
-        #     student_channels=yaml["dfd"]["student_channels"],
-        #     patch_size=yaml["dfd"]["patch_size"],
-        #     distill_mode=yaml["dfd"]["distill_mode"],
-        #     swinblocknumber=yaml["dfd"]["swinblocknumber"],
-        #     mode=yaml['dfd']['mode'],
-        # ).cuda(gpu),device_ids=[gpu])
-        #
-        self.dfd = DDP(
-            ReviewKD(
-                in_channels=yaml["dfd"]["student_channels"],
-                out_channels=yaml["dfd"]["teacher_channels"],
-                max_mid_channel=512,
-                shapes=yaml["dfd"]["feature_size"],
-                out_shapes=yaml["dfd"]["feature_size"],
-            ).cuda(gpu),
-            device_ids=[gpu],
-        )
+        self.dfd = DDP(DynamicFeatureDistillation(
+            features_size=yaml["dfd"]["feature_size"],
+            teacher_channels=yaml["dfd"]["teacher_channels"],
+            student_channels=yaml["dfd"]["student_channels"],
+            patch_size=yaml["dfd"]["patch_size"],
+            distill_mode=yaml["dfd"]["distill_mode"],
+            swinblocknumber=yaml["dfd"]["swinblocknumber"],
+            mode=yaml['dfd']['mode'],
+        ).cuda(gpu),device_ids=[gpu])
+
+        # self.dfd = DDP(
+        #     ReviewKD(
+        #         in_channels=yaml["dfd"]["student_channels"],
+        #         out_channels=yaml["dfd"]["teacher_channels"],
+        #         max_mid_channel=512,
+        #         shapes=yaml["dfd"]["feature_size"],
+        #         out_shapes=yaml["dfd"]["feature_size"],
+        #     ).cuda(gpu),
+        #     device_ids=[gpu],
+        # )
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
@@ -414,7 +414,7 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples,alignment_ts=True) * 0.8
+                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples) * 0.8
 
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (

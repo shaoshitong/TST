@@ -647,19 +647,6 @@ class DynamicFeatureDistillation(nn.Module):
             ite += 1
             self.vit_decoder_embeddings.append(vit_embedding)
 
-        self.student_unembedding = nn.ModuleList([])
-        for size, s_channel, t_channel in zip(
-                features_size[distill_number:],
-                student_channels[distill_number:],
-                teacher_channels[distill_number:],
-        ):
-            self.student_unembedding.append(
-                nn.Sequential(
-                    nn.Conv2d(s_channel, t_channel, (1, 1), (1, 1), bias=False),
-                    norm(t_channel)
-                )
-            )
-
         self.res_turn = nn.ModuleList(
             [
                 nn.Conv2d(s_channel1, s_channel2, (1, 1), (1, 1), (0, 0), bias=False)
@@ -679,18 +666,6 @@ class DynamicFeatureDistillation(nn.Module):
                                                   , student_channels[distill_number:][:-1])
             ])
 
-        self.student_bns = nn.ModuleList(
-            [norm(s_channel) for s_channel in student_channels[distill_number:]]
-        )
-        self.teacher_bns = nn.ModuleList(
-            [norm(s_channel) for s_channel in student_channels[distill_number:]]
-        )
-        self.student_fcs = nn.ModuleList(
-            [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
-        )
-        self.teacher_fcs = nn.ModuleList(
-            [Classifier(s_channel, num_classes) for s_channel in student_channels[distill_number:]]
-        )
         self.cross = nn.CrossEntropyLoss()
 
         # TODO: build flatten
@@ -828,7 +803,7 @@ class DynamicFeatureDistillation(nn.Module):
 
         return new_teacher_feature_maps[::-1], new_student_feature_maps[::-1]
 
-    def forward(self, teacher_feature_maps, student_feature_maps, targets) -> torch.Tensor:
+    def forward(self, teacher_feature_maps, student_feature_maps) -> torch.Tensor:
         teacher_feature_maps = teacher_feature_maps[self.distill_number:]
         student_feature_maps = student_feature_maps[self.distill_number:]
 
@@ -877,10 +852,15 @@ class DynamicFeatureDistillation(nn.Module):
             loss1 = F.mse_loss(teacher_feature_map, student_feature_map, reduction="mean")
             dfd_loss += loss1
         return dfd_loss
+
 # if __name__ == "__main__":
 #     dpk = DynamicFeatureDistillation(features_size=(32, 16, 8), teacher_channels=(16, 32, 64),
 #                                      student_channels=(8, 16, 32)).cuda()
 #     T = [torch.randn(2, 16, 32, 32).cuda(), torch.randn(2, 32, 16, 16).cuda(), torch.randn(2, 64, 8, 8).cuda()]
 #     S = [torch.randn(2, 8, 32, 32).cuda(), torch.randn(2, 16, 16, 16).cuda(), torch.randn(2, 32, 8, 8).cuda()]
-#     loss = dpk(T, S)
-#     print(loss)
+#     loss = dpk(T, S).mean()
+#     loss.backward()
+#
+#     for name,param in dpk.named_parameters():
+#         if param.grad is None:
+#             print(name,param.shape)
