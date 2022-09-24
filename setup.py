@@ -5,5 +5,5 @@ setup(
     version="0.0.1",
     description="Learning Limit Augmentation in Knowledge Distillation",
     packages=find_packages(),
-    install_requires=["timm", "Pillow", "tqdm", "wandb", "einops", "omegaconf"],
+    install_requires=["timm", "Pillow", "tqdm", "wandb", "einops", "omegaconf", "matplotlib"],
 )
