@@ -4,7 +4,7 @@ Using Learning Limit Augmentation to Select Appropriate Samples to Assist Distil
 ## install
 
 ```bash
-conda env create -f environment.yaml
+conda env create -f environment.yml
 source activate llacd
 ```
 ## run
