@@ -96,10 +96,10 @@ class LearnDiversifyEnv(object):
             momentum=0.9,
             nesterov=True,
         )
-        self.convertor_scheduler = getattr(torch.optim.lr_scheduler, yaml["scheduler"]["type"])(
+        self.convertor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.convertor_optimizer,
-            milestones=yaml["scheduler"]["milestones"],
-            gamma=yaml["scheduler"]["gamma"],
+            T_max=self.yaml['epoch'],
+            eta_min=1e-5,
         )
         self.tran = (
             transforms.Compose(
@@ -334,7 +334,9 @@ class LearnDiversifyEnv(object):
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
-        vanilla_kd_loss = self.KDLoss(student_logits.float(), teacher_logits.float(), labels)
+        vanilla_kd_loss = self.KDLoss(student_logits.float(),
+                                      teacher_logits.float(),
+                                      labels,self.yaml["criticion"]["temperature"])
 
         # TODO: 2. Lilikehood Loss student and teacher2
         augmented_studnet_mu = student_mu[:b]
@@ -572,11 +574,10 @@ class LearnDiversifyEnv(object):
             self.scheduler.step()
         elif isinstance(self.scheduler, timm.scheduler.scheduler.Scheduler):
             self.scheduler.step(self.epoch)
-        if isinstance(self.convertor_scheduler, torch.optim.lr_scheduler.MultiStepLR):
+        if isinstance(self.convertor_scheduler, torch.optim.lr_scheduler.CosineAnnealingLR):
             self.convertor_scheduler.step()
         elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
             self.convertor_scheduler.step(self.epoch)
-
     def training_in_all_epoch(self):
         for i in range(self.begin_epoch, self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
