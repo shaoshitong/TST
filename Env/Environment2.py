@@ -12,7 +12,8 @@ from torchvision import transforms
 import torch.distributed as dist
 from helpers.correct_num import correct_num
 from helpers.log import Log
-from losses.ReviewKD import ReviewKD
+# from losses.ReviewKD import ReviewKD
+from losses.PRviewKD import ReviewKD
 from losses.DFD import DynamicFeatureDistillation
 from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
@@ -171,26 +172,26 @@ class LearnDiversifyEnv(object):
         self.weights = yaml["weights"]
 
         # TODO: DFD
-        self.dfd = DDP(DynamicFeatureDistillation(
-            features_size=yaml["dfd"]["feature_size"],
-            teacher_channels=yaml["dfd"]["teacher_channels"],
-            student_channels=yaml["dfd"]["student_channels"],
-            patch_size=yaml["dfd"]["patch_size"],
-            distill_mode=yaml["dfd"]["distill_mode"],
-            swinblocknumber=yaml["dfd"]["swinblocknumber"],
-            mode=yaml['dfd']['mode'],
-        ).cuda(gpu),device_ids=[gpu])
+        # self.dfd = DDP(DynamicFeatureDistillation(
+        #     features_size=yaml["dfd"]["feature_size"],
+        #     teacher_channels=yaml["dfd"]["teacher_channels"],
+        #     student_channels=yaml["dfd"]["student_channels"],
+        #     patch_size=yaml["dfd"]["patch_size"],
+        #     distill_mode=yaml["dfd"]["distill_mode"],
+        #     swinblocknumber=yaml["dfd"]["swinblocknumber"],
+        #     mode=yaml['dfd']['mode'],
+        # ).cuda(gpu),device_ids=[gpu])
 
-        # self.dfd = DDP(
-        #     ReviewKD(
-        #         in_channels=yaml["dfd"]["student_channels"],
-        #         out_channels=yaml["dfd"]["teacher_channels"],
-        #         max_mid_channel=512,
-        #         shapes=yaml["dfd"]["feature_size"],
-        #         out_shapes=yaml["dfd"]["feature_size"],
-        #     ).cuda(gpu),
-        #     device_ids=[gpu],
-        # )
+        self.dfd = DDP(
+            ReviewKD(
+                in_channels=yaml["dfd"]["student_channels"],
+                out_channels=yaml["dfd"]["teacher_channels"],
+                max_mid_channel=512,
+                shapes=yaml["dfd"]["feature_size"],
+                out_shapes=yaml["dfd"]["feature_size"],
+            ).cuda(gpu),
+            device_ids=[gpu],
+        )
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]

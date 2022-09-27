@@ -25,8 +25,8 @@ sc_lr:
 weights:
   - 1
   - 1
-  - 0
-  - 0
+  - 0.4
+  - 0.4
   - 1
   - 1
 augnettype:
@@ -44,7 +44,7 @@ test_batch_size:
 reward_accumuate_step:
   8
 model_save_path:
-  /checkpoints/wrn40_2_wrn16_2_2
+  /checkpoints/wrn40_2_wrn16_2_3
 log_each:
   100
 optimizer:
