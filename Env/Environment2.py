@@ -7,14 +7,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import DataParallel as DP
+
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import torch.distributed as dist
 from helpers.correct_num import correct_num
 from helpers.log import Log
 # from losses.ReviewKD import ReviewKD
-from losses.PRviewKD import ReviewKD
-from losses.DFD import DynamicFeatureDistillation
+# from losses.PRviewKD import ReviewKD
+# from losses.DFD import DynamicFeatureDistillation
+from losses.SimpleMseKD import SMSEKD
 from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 
@@ -182,8 +185,8 @@ class LearnDiversifyEnv(object):
         #     mode=yaml['dfd']['mode'],
         # ).cuda(gpu),device_ids=[gpu])
 
-        self.dfd = DDP(
-            ReviewKD(
+        self.dfd = DP(
+            SMSEKD(
                 in_channels=yaml["dfd"]["student_channels"],
                 out_channels=yaml["dfd"]["teacher_channels"],
                 max_mid_channel=512,

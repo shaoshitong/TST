@@ -46,6 +46,7 @@ train_dataset = torchvision.datasets.cifar.CIFAR100("/home/sst/dataset/c100",tra
 from torch.utils.data import DataLoader
 test_dataloader = DataLoader(test_dataset,batch_size=64,num_workers=4)
 train_dataloader = DataLoader(train_dataset,batch_size=64,num_workers=4)
+
 @torch.no_grad()
 def test(test_dataloader,model1,model2,teacher):
     model1 = model1.cuda()
@@ -101,6 +102,6 @@ def test(test_dataloader,model1,model2,teacher):
     for a,b,c,d,e,f,g,h,i,j in zip(*result):
         new_result.append([a,b,c,d,e,f,g,h,i,j])
     result = pd.DataFrame(new_result,columns=["cls_model1","cls_model2","acc_model1","acc_model2","mse_1_model1","mse_1_model2","mse_2_model1","mse_2_model2","mse_3_model1","mse_3_model2"])
-    result.to_csv("./distance_test.csv")
+    result.to_csv("./distance_train.csv")
 
-test(test_dataloader,model_wo_reviewkd,model_w_reviewkd,teacher)
+test(train_dataloader,model_wo_reviewkd,model_w_reviewkd,teacher)
