@@ -172,6 +172,6 @@ if __name__ == "__main__":
     world_size = ngpus_per_node * world_size
     print("multiprocessing_distributed")
     torch.multiprocessing.set_start_method("spawn")
-    mp.spawn( # Left 2: softmax weight=1 Right 2: softmax weight=2
+    mp.spawn(  # Left 2: softmax weight=1 Right 2: softmax weight=2
         main_worker, nprocs=ngpus_per_node, args=(yaml_config, ngpus_per_node, world_size, dist_url)
     )

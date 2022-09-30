@@ -1,24 +1,26 @@
 import os
 import time
-import wandb
 
 import timm.scheduler.scheduler
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import DataParallel as DP
-
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import torch.distributed as dist
+from torchvision.transforms import AutoAugmentPolicy
+
+import wandb
+from datas.LearningAutoAugment import LearningAutoAugment
 from helpers.correct_num import correct_num
 from helpers.log import Log
+
 # from losses.ReviewKD import ReviewKD
 # from losses.PRviewKD import ReviewKD
 # from losses.DFD import DynamicFeatureDistillation
 from losses.SimpleMseKD import SMSEKD
-from utils.augnet import BigImageAugNet, SmallImageAugNet
 from utils.mmd import conditional_mmd_rbf
 
 
@@ -69,28 +71,42 @@ class LearnDiversifyEnv(object):
         self.best_acc = 0.0
         self.accumuate_count = 0
         self.scaler = torch.cuda.amp.GradScaler()
-        if self.gpu==0:
+        if self.gpu == 0:
             self.log = Log(log_each=yaml["log_each"])
         time_path = time.strftime("%Y^%m^%d^%H^%M^%S", time.localtime()) + ".txt"
         if self.gpu == 0:
             self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
-        AugNet = (
-            BigImageAugNet if not yaml["augnettype"] == "SmallImageAugNet" else SmallImageAugNet
-        )
+        if yaml["LAA"]["augmentation_policy"] == "cifar10":
+            policy_type = AutoAugmentPolicy.CIFAR10
+        elif yaml["LAA"]["augmentation_policy"] == "imagenet":
+            policy_type = AutoAugmentPolicy.IMAGENET
+        else:
+            raise NotImplementedError
+        print(policy_type)
         self.convertor = (
             DDP(
-                AugNet(
-                    img_size=yaml["img_size"],
+                LearningAutoAugment(
+                    policy=policy_type,
+                    C=yaml["LAA"]["C"],
+                    H=yaml["LAA"]["H"],
+                    W=yaml["LAA"]["W"],
+                    p=yaml["LAA"]["p"],
                     num_train_samples=len(self.dataloader.dataset),
-                    yaml=yaml,
+                    total_epoch=self.total_epoch,
                 ).cuda(gpu),
                 device_ids=[gpu],
             )
             if torch.cuda.is_available()
-            else AugNet(
-                img_size=yaml["img_size"], num_train_samples=len(self.dataloader.dataset), yaml=yaml
+            else LearningAutoAugment(
+                policy=policy_type,
+                C=yaml["LAA"]["C"],
+                H=yaml["LAA"]["H"],
+                W=yaml["LAA"]["W"],
+                p=yaml["LAA"]["p"],
+                num_train_samples=len(self.dataloader.dataset),
+                total_epoch=self.total_epoch,
             ).cpu()
         )
 
@@ -102,7 +118,7 @@ class LearnDiversifyEnv(object):
         )
         self.convertor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.convertor_optimizer,
-            T_max=self.yaml['epoch'],
+            T_max=self.yaml["epoch"],
             eta_min=1e-5,
         )
         self.tran = (
@@ -185,13 +201,13 @@ class LearnDiversifyEnv(object):
         #     mode=yaml['dfd']['mode'],
         # ).cuda(gpu),device_ids=[gpu])
 
-        self.dfd = DP(
+        self.dfd = DDP(
             SMSEKD(
                 in_channels=yaml["dfd"]["student_channels"],
                 out_channels=yaml["dfd"]["teacher_channels"],
-                max_mid_channel=512,
                 shapes=yaml["dfd"]["feature_size"],
                 out_shapes=yaml["dfd"]["feature_size"],
+                num_classes=yaml["num_classes"],
             ).cuda(gpu),
             device_ids=[gpu],
         )
@@ -215,7 +231,7 @@ class LearnDiversifyEnv(object):
             self.student_model.load_state_dict(dict["student_model"])
             self.p_mu.load_state_dict(dict["p_mu"])
             self.p_logvar.load_state_dict(dict["p_logvar"])
-            self.convertor.load_state_dict(dict["convertor"],strict=False)
+            self.convertor.load_state_dict(dict["convertor"], strict=False)
             self.convertor_optimizer.load_state_dict(dict["convertor_optimizer"])
             self.convertor_scheduler.load_state_dict(dict["convertor_scheduler"])
             self.scaler.load_state_dict(dict["scaler"])
@@ -317,7 +333,7 @@ class LearnDiversifyEnv(object):
         target = F.one_hot(target, num_classes=self.num_classes).float()
         self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        inputs_max, target_temp,attention_index = self.convertor.module(
+        inputs_max, target_temp, attention_index = self.convertor.module(
             input.clone(), target, indexs, 2 * self.epoch
         )
         b, c, h, w = inputs_max.shape
@@ -338,9 +354,12 @@ class LearnDiversifyEnv(object):
         # TODO: compute relative loss
 
         # TODO: 1, vanilla KD Loss
-        vanilla_kd_loss = self.KDLoss(student_logits.float(),
-                                      teacher_logits.float(),
-                                      labels,self.yaml["criticion"]["temperature"])
+        vanilla_kd_loss = self.KDLoss(
+            student_logits.float(),
+            teacher_logits.float(),
+            labels,
+            self.yaml["criticion"]["temperature"],
+        )
 
         # TODO: 2. Lilikehood Loss student and teacher2
         augmented_studnet_mu = student_mu[:b]
@@ -356,7 +375,7 @@ class LearnDiversifyEnv(object):
             dfd_loss = torch.Tensor([0.0]).cuda(self.gpu)
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(student_tuple, teacher_tuple)
+                dfd_loss = self.dfd(student_tuple, teacher_tuple, labels, only_alignment=False)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -420,8 +439,12 @@ class LearnDiversifyEnv(object):
                 ne_dfd_loss = -torch.Tensor([0.0]).cuda(self.gpu)
             else:
                 with torch.cuda.amp.autocast(enabled=True):
-                    ne_dfd_loss = -self.dfd.module(student_tuples, teacher_tuples) * 0.8
-
+                    ne_dfd_loss = (
+                        -self.dfd.module(
+                            student_tuples, teacher_tuples, labels, only_alignment=True
+                        )
+                        * 0.8
+                    )
             # TODO: 5.to Combine all Loss in stage two
             loss_2 = (
                 +self.weights[3] * ne_dfd_loss
@@ -447,10 +470,10 @@ class LearnDiversifyEnv(object):
 
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
-        dist.all_reduce(top1,op=dist.ReduceOp.SUM)
-        dist.all_reduce(top5,op=dist.ReduceOp.SUM)
-        top1/=torch.cuda.device_count()
-        top5/=torch.cuda.device_count()
+        dist.all_reduce(top1, op=dist.ReduceOp.SUM)
+        dist.all_reduce(top5, op=dist.ReduceOp.SUM)
+        top1 /= torch.cuda.device_count()
+        top5 /= torch.cuda.device_count()
 
         loss = loss_1 + loss_2
         lr = (
@@ -459,7 +482,7 @@ class LearnDiversifyEnv(object):
             else self.scheduler.lr()
         )
         lr = lr[0]
-        if self.gpu==0:
+        if self.gpu == 0:
             self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
         return (
             top1.cpu().item(),
@@ -481,7 +504,7 @@ class LearnDiversifyEnv(object):
         t_logits = self.teacher_model(input)
         loss = self.loss(logits, t_logits, target)
         top1, top5 = correct_num(logits, target, topk=(1, 5))
-        top1 = dist.all_reduce(top1,op=dist.ReduceOp.SUM)/torch.cuda.device_count()
+        top1 = dist.all_reduce(top1, op=dist.ReduceOp.SUM) / torch.cuda.device_count()
         return top1.cpu().item(), loss.cpu().item()
 
     def run_one_train_epoch(self):
@@ -491,7 +514,7 @@ class LearnDiversifyEnv(object):
         self.p_logvar.train()
         self.p_mu.train()
         self.convertor.train()
-        if self.gpu==0:
+        if self.gpu == 0:
             self.log.train(len_dataset=len(self.dataloader))
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
@@ -505,7 +528,7 @@ class LearnDiversifyEnv(object):
                 attention_index,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
-                if batch_idx==0:
+                if batch_idx == 0:
                     self.ff.write(str(attention_index.cpu().numpy().tolist()) + "\n")
                 self.wandb.log(
                     {
@@ -520,7 +543,7 @@ class LearnDiversifyEnv(object):
                     step=self.accumuate_count,
                 )
             self.accumuate_count += 1
-        if self.gpu==0:
+        if self.gpu == 0:
             train_acc, train_loss = (
                 self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
                 self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
@@ -542,7 +565,7 @@ class LearnDiversifyEnv(object):
         self.p_logvar.eval()
         self.p_mu.eval()
         self.convertor.eval()
-        if self.gpu==0:
+        if self.gpu == 0:
             self.log.eval(len_dataset=len(self.testloader))
         for batch_idx, (input, target) in enumerate(self.testloader):
             input = input.float().cuda()
@@ -557,9 +580,9 @@ class LearnDiversifyEnv(object):
             dist.all_reduce(top5, op=dist.ReduceOp.SUM)
             top1 /= torch.cuda.device_count()
             top5 /= torch.cuda.device_count()
-            if self.gpu==0:
+            if self.gpu == 0:
                 self.log(self.student_model, loss.cpu(), top1.cpu(), top5.cpu())
-        if self.gpu==0:
+        if self.gpu == 0:
             test_acc, test_loss = (
                 self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
                 self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
@@ -582,6 +605,7 @@ class LearnDiversifyEnv(object):
             self.convertor_scheduler.step()
         elif isinstance(self.convertor_scheduler, timm.scheduler.scheduler.Scheduler):
             self.convertor_scheduler.step(self.epoch)
+
     def training_in_all_epoch(self):
         for i in range(self.begin_epoch, self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
@@ -599,7 +623,7 @@ class LearnDiversifyEnv(object):
             if self.gpu == 0:
                 if not os.path.isdir(path):
                     os.makedirs(path)
-                if i==self.total_epoch-1:
+                if i == self.total_epoch - 1:
                     model_path = os.path.join(
                         self.model_save_path,
                         f"final_dataset_{self.yaml['data']}_teacher_{self.yaml['tarch']}_student_{self.yaml['arch']}.pth",

@@ -1,23 +1,21 @@
-
+import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import einops
 from einops import rearrange
+
 
 def cosine_similarity(a, b, eps=1e-8):
     return (a * b).sum(1) / (a.norm(dim=1) * b.norm(dim=1) + eps)
 
 
 def pearson_correlation(a, b, eps=1e-8):
-    return cosine_similarity(a - a.mean(1).unsqueeze(1),
-                             b - b.mean(1).unsqueeze(1), eps)
+    return cosine_similarity(a - a.mean(1).unsqueeze(1), b - b.mean(1).unsqueeze(1), eps)
 
 
 def inter_class_relation(y_s, y_t):
     return 1 - pearson_correlation(y_s, y_t).mean()
-
 
 
 def hcl_loss(fstudent, fteacher):
@@ -36,7 +34,7 @@ def hcl_loss(fstudent, fteacher):
             tmpfs = tmpfs.mean(1).flatten(1)
             tmpft = tmpft.mean(1).flatten(1)
 
-            loss +=inter_class_relation(tmpfs, tmpft) * cnt
+            loss += inter_class_relation(tmpfs, tmpft) * cnt
             tot += cnt
         loss = loss / tot
         loss_all = loss_all + loss
@@ -78,6 +76,7 @@ class ABF(nn.Module):
             x = F.interpolate(x, (out_shape, out_shape), mode="nearest")
         y = self.conv2(x)
         return y, x
+
     #
     # def mix_student_and_teacher(
     #         self, feature_map1, feature_map2, soft_mask,
@@ -123,7 +122,7 @@ class ReviewKD(nn.Module):
         out_features, res_features = self.abfs[0](x[0], out_shape=self.out_shapes[0])
         results.append(out_features)
         for features, abf, shape, out_shape in zip(
-                x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
+            x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
         ):
             out_features, res_features = abf(features, res_features, shape, out_shape)
             results.insert(0, out_features)

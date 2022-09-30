@@ -1,8 +1,8 @@
+import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import einops
 from einops import rearrange
 
 
@@ -61,6 +61,7 @@ class ABF(nn.Module):
             x = F.interpolate(x, (out_shape, out_shape), mode="nearest")
         y = self.conv2(x)
         return y, x
+
     #
     # def mix_student_and_teacher(
     #         self, feature_map1, feature_map2, soft_mask,
@@ -106,7 +107,7 @@ class ReviewKD(nn.Module):
         out_features, res_features = self.abfs[0](x[0], out_shape=self.out_shapes[0])
         results.append(out_features)
         for features, abf, shape, out_shape in zip(
-                x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
+            x[1:], self.abfs[1:], self.shapes[1:], self.out_shapes[1:]
         ):
             out_features, res_features = abf(features, res_features, shape, out_shape)
             results.insert(0, out_features)
@@ -114,9 +115,9 @@ class ReviewKD(nn.Module):
         loss_reviewkd = hcl_loss(results, features_teacher)
 
         if alignment_ts:
-            loss_super = 0.
+            loss_super = 0.0
             for feature in features_teacher:
                 b, c, h, w = feature.shape
-                loss_super += F.mse_loss(feature[:b // 2], feature[b // 2:])
-            return - loss_super * 0.1 + loss_reviewkd
+                loss_super += F.mse_loss(feature[: b // 2], feature[b // 2 :])
+            return -loss_super * 0.1 + loss_reviewkd
         return loss_reviewkd

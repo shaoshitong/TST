@@ -1,6 +1,5 @@
 import copy
 import math
-import random
 
 import einops
 import numpy as np
@@ -92,12 +91,12 @@ class Flow_Attention(nn.Module):
         source_competition = torch.softmax(conserved_source, dim=-1) * float(keys.shape[2])
         # (4) dot product
         x = (
-                self.dot_product(
-                    queries * sink_incoming[:, :, :, None],  # for value normalization
-                    keys,
-                    values * source_competition[:, :, :, None],
-                )  # competition
-                * sink_allocation[:, :, :, None]
+            self.dot_product(
+                queries * sink_incoming[:, :, :, None],  # for value normalization
+                keys,
+                values * source_competition[:, :, :, None],
+            )  # competition
+            * sink_allocation[:, :, :, None]
         ).transpose(
             1, 2
         )  # allocation
@@ -109,11 +108,11 @@ class Flow_Attention(nn.Module):
 
 
 def _apply_op(
-        img: Tensor,
-        op_name: str,
-        magnitude: float,
-        interpolation: InterpolationMode,
-        fill: Optional[List[float]],
+    img: Tensor,
+    op_name: str,
+    magnitude: float,
+    interpolation: InterpolationMode,
+    fill: Optional[List[float]],
 ):
     if op_name == "ShearX":
         # magnitude should be arctan(magnitude)
@@ -131,7 +130,6 @@ def _apply_op(
             interpolation=interpolation,
             fill=fill,
             center=[0, 0],
-
         )
     elif op_name == "ShearY":
         # magnitude should be arctan(magnitude)
@@ -145,7 +143,6 @@ def _apply_op(
             interpolation=interpolation,
             fill=fill,
             center=[0, 0],
-
         )
     elif op_name == "TranslateX":
         img = F.affine(
@@ -193,26 +190,35 @@ def _apply_op(
         raise ValueError(f"The provided operator {op_name} is not recognized.")
     return img
 
+
 class Reshape(nn.Module):
-    def __init__(self,C,H,W,P):
+    def __init__(self, C, H, W, P):
         super(Reshape, self).__init__()
-        self.conv=nn.Conv2d(C, C, (7, 7), (7, 7), bias=False,groups=C)
-        self.P=P
-    def forward(self,x):
-        p,b,c,h,w=x.shape
-        x = einops.rearrange(self.conv(einops.rearrange(x,"p b c h w -> (p b) c h w")),"(p b) c h w -> b (p c h w)",p=p)
+        self.conv = nn.Conv2d(C, C, (7, 7), (7, 7), bias=False, groups=C)
+        self.P = P
+
+    def forward(self, x):
+        p, b, c, h, w = x.shape
+        x = einops.rearrange(
+            self.conv(einops.rearrange(x, "p b c h w -> (p b) c h w")),
+            "(p b) c h w -> b (p c h w)",
+            p=p,
+        )
         return x
+
+
 class LearningAutoAugment(transforms.AutoAugment):
     def __init__(
-            self,
-            policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
-            interpolation: InterpolationMode = InterpolationMode.NEAREST,
-            fill: Optional[List[float]] = None,
-            p=0.25,
-            C=3,
-            H=224,
-            W=224,
-            num_train_samples=50000,
+        self,
+        policy: AutoAugmentPolicy = AutoAugmentPolicy.IMAGENET,
+        interpolation: InterpolationMode = InterpolationMode.NEAREST,
+        fill: Optional[List[float]] = None,
+        p=0.25,
+        C=3,
+        H=224,
+        W=224,
+        num_train_samples=50000,
+        total_epoch=240,
     ):
         super(LearningAutoAugment, self).__init__(
             policy,
@@ -226,6 +232,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         self.W = W
         self.num_train_samples = num_train_samples
         self.tag = 0
+        self.total_epoch = total_epoch
         all_policies_set = set()
         for policies in self.policies:
             first_policies = policies[0]
@@ -249,7 +256,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: Learning Module
         self.fc = nn.Sequential()
         if H > 56 and W > 56:
-            self.fc.add_module("conv1", Reshape(C=C,H=H,W=W,P=len(self.policies)))
+            self.fc.add_module("conv1", Reshape(C=C, H=H, W=W, P=len(self.policies)))
             H, W = H // 7, W // 7
         self.fc.add_module("fc1", nn.Linear(len(self.policies) * C * H * W, 512))
         self.fc.add_module("relu", nn.ReLU(inplace=True))
@@ -274,8 +281,8 @@ class LearningAutoAugment(transforms.AutoAugment):
 
         self.buffer[indexs] = (
             self.buffer[indexs]
-                .mul_(momentum)
-                .add_((1.0 - momentum) * weight.clone().detach().float())
+            .mul_(momentum)
+            .add_((1.0 - momentum) * weight.clone().detach().float())
         )
 
     def forward(self, img: Tensor, y, indexs, epoch):
@@ -284,26 +291,27 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         randperm = torch.arange(len(self.policies))
         with torch.no_grad():
+            now_p = self.p * max(0, 1 - (1 - (epoch // 2) / (self.total_epoch)) ** 4) ** (1 / 4)
             assert isinstance(img, Tensor), "The input must be Tensor!"
             assert (
-                    img.shape[1] == 1 or img.shape[1] == 3
+                img.shape[1] == 1 or img.shape[1] == 3
             ), "The channels for image input must be 1 and 3"
 
-            if epoch%2==0:
+            if epoch % 2 == 0:
                 if img.dtype != torch.uint8:
                     if self.policy == AutoAugmentPolicy.CIFAR10:
-                        img.mul_(torch.Tensor([0.2675, 0.2565, 0.2761])[None, :, None, None].cuda()).add_(
-                            torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda()
-                        )
+                        img.mul_(
+                            torch.Tensor([0.2675, 0.2565, 0.2761])[None, :, None, None].cuda()
+                        ).add_(torch.Tensor([0.5071, 0.4867, 0.4408])[None, :, None, None].cuda())
                     else:
-                        img.mul_(torch.Tensor([0.229, 0.224, 0.225])[None, :, None, None].cuda()).add_(
-                            torch.Tensor([0.485, 0.456, 0.406])[None, :, None, None].cuda()
-                        )
+                        img.mul_(
+                            torch.Tensor([0.229, 0.224, 0.225])[None, :, None, None].cuda()
+                        ).add_(torch.Tensor([0.485, 0.456, 0.406])[None, :, None, None].cuda())
                     img = img * 255
                     torch.clip_(img, 0, 255)
                     img = img.type(torch.uint8)
                 assert (
-                        img.dtype == torch.uint8
+                    img.dtype == torch.uint8
                 ), "Only torch.uint8 image tensors are supported, but found torch.int64"
 
                 fill = self.fill
@@ -318,18 +326,18 @@ class LearningAutoAugment(transforms.AutoAugment):
                 lasbels = [y]
                 results.append(self.tran(img / 255))
                 # TODO: 应当用竞争机制来生成对应的输出...
-                b = img.shape[0]
                 for randindex in randperm:
                     prob = torch.rand((1,))
                     sign = torch.randint(2, (1,))
                     policy = self.policies[randindex]
                     (op_name, p, magnitude_id) = policy
-                    p = self.p
-                    if prob <= p:
+                    if prob <= now_p:
                         if op_name != "CutMix":
                             magnitudes, signed = op_meta[op_name]
                             magnitude = (
-                                float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                                float(magnitudes[magnitude_id].item())
+                                if magnitude_id is not None
+                                else 0.0
                             )
                             if signed and sign:
                                 magnitude *= -1.0
@@ -344,8 +352,8 @@ class LearningAutoAugment(transforms.AutoAugment):
                 results = torch.stack(results, 0)  # P,B,C,H,W
                 labels = torch.stack(lasbels, 0)
 
-                self.register_buffer("results",results)
-                self.register_buffer("labels",labels)
+                self.register_buffer("results", results)
+                self.register_buffer("labels", labels)
             else:
                 results = self.results
                 labels = self.labels
@@ -360,19 +368,19 @@ class LearningAutoAugment(transforms.AutoAugment):
         if self.policy == AutoAugmentPolicy.CIFAR10:
             results = results.view(P, B, -1)  # P,B,C*H*W
             attention_vector = (
-                    einops.rearrange(
-                        torch.sigmoid(self.fc(einops.rearrange(results[1:],"p b c -> b (p c)"))),
-                        "b c -> c b",
-                    )[..., None]
-                    + 1
+                einops.rearrange(
+                    torch.sigmoid(self.fc(einops.rearrange(results[1:], "p b c -> b (p c)"))),
+                    "b c -> c b",
+                )[..., None]
+                + 1
             )
         else:
             attention_vector = (
-                    einops.rearrange(
-                        torch.sigmoid(self.fc(results[1:])),
-                        "b c -> c b",
-                    )[..., None]
-                    + 1
+                einops.rearrange(
+                    torch.sigmoid(self.fc(results[1:])),
+                    "b c -> c b",
+                )[..., None]
+                + 1
             )
             results = results.view(P, B, -1)  # P,B,C*H*W
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
@@ -394,11 +402,9 @@ class LearningAutoAugment(transforms.AutoAugment):
             -1
         ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
         result = (
-                (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
+            (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
         ).view(B, C, H, W)
         labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
             B, -1
         )
         return result, labels, attention_vector.mean(1).squeeze()
-
-#
