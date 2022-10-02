@@ -291,7 +291,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         randperm = torch.arange(len(self.policies))
         with torch.no_grad():
-            now_p = self.p * max(0, 1 - (1 - (epoch // 2) / (self.total_epoch)) ** 4) ** (1 / 4)
             assert isinstance(img, Tensor), "The input must be Tensor!"
             assert (
                 img.shape[1] == 1 or img.shape[1] == 3
@@ -331,7 +330,7 @@ class LearningAutoAugment(transforms.AutoAugment):
                     sign = torch.randint(2, (1,))
                     policy = self.policies[randindex]
                     (op_name, p, magnitude_id) = policy
-                    if prob <= now_p:
+                    if prob <= self.p:
                         if op_name != "CutMix":
                             magnitudes, signed = op_meta[op_name]
                             magnitude = (

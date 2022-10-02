@@ -573,6 +573,7 @@ class DynamicFeatureDistillation(nn.Module):
                     kernel_size=(patch_size, patch_size),
                     stride=(patch_size, patch_size),
                     bias=False,
+                    groups=s_channel,
                 ),
                 norm(s_channel * patch_size * patch_size),
             )

@@ -19,7 +19,7 @@ from helpers.log import Log
 
 # from losses.ReviewKD import ReviewKD
 # from losses.PRviewKD import ReviewKD
-# from losses.DFD import DynamicFeatureDistillation
+from losses.DFD import DynamicFeatureDistillation
 from losses.SimpleMseKD import SMSEKD
 from utils.mmd import conditional_mmd_rbf
 
@@ -181,8 +181,6 @@ class LearnDiversifyEnv(object):
                 nn.LeakyReLU(),
             )
         )
-        self.reset_parameters(self.p_mu)
-        self.reset_parameters(self.p_logvar)
         # TODO: It is important to remember to add the last parameter in the optimizer
         self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
         self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
@@ -191,26 +189,26 @@ class LearnDiversifyEnv(object):
         self.weights = yaml["weights"]
 
         # TODO: DFD
-        # self.dfd = DDP(DynamicFeatureDistillation(
-        #     features_size=yaml["dfd"]["feature_size"],
-        #     teacher_channels=yaml["dfd"]["teacher_channels"],
-        #     student_channels=yaml["dfd"]["student_channels"],
-        #     patch_size=yaml["dfd"]["patch_size"],
-        #     distill_mode=yaml["dfd"]["distill_mode"],
-        #     swinblocknumber=yaml["dfd"]["swinblocknumber"],
-        #     mode=yaml['dfd']['mode'],
-        # ).cuda(gpu),device_ids=[gpu])
+        self.dfd = DDP(DynamicFeatureDistillation(
+            features_size=yaml["dfd"]["feature_size"],
+            teacher_channels=yaml["dfd"]["teacher_channels"],
+            student_channels=yaml["dfd"]["student_channels"],
+            patch_size=yaml["dfd"]["patch_size"],
+            distill_mode=yaml["dfd"]["distill_mode"],
+            swinblocknumber=yaml["dfd"]["swinblocknumber"],
+            mode=yaml['dfd']['mode'],
+        ).cuda(gpu),device_ids=[gpu])
 
-        self.dfd = DDP(
-            SMSEKD(
-                in_channels=yaml["dfd"]["student_channels"],
-                out_channels=yaml["dfd"]["teacher_channels"],
-                shapes=yaml["dfd"]["feature_size"],
-                out_shapes=yaml["dfd"]["feature_size"],
-                num_classes=yaml["num_classes"],
-            ).cuda(gpu),
-            device_ids=[gpu],
-        )
+        # self.dfd = DDP(
+        #     SMSEKD(
+        #         in_channels=yaml["dfd"]["student_channels"],
+        #         out_channels=yaml["dfd"]["teacher_channels"],
+        #         shapes=yaml["dfd"]["feature_size"],
+        #         out_shapes=yaml["dfd"]["feature_size"],
+        #         num_classes=yaml["num_classes"],
+        #     ).cuda(gpu),
+        #     device_ids=[gpu],
+        # )
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
@@ -375,7 +373,7 @@ class LearnDiversifyEnv(object):
             dfd_loss = torch.Tensor([0.0]).cuda(self.gpu)
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(student_tuple, teacher_tuple, labels, only_alignment=False)
+                dfd_loss = self.dfd(student_tuple, teacher_tuple)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -386,6 +384,7 @@ class LearnDiversifyEnv(object):
         # self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
         self.scaler.scale(loss_1).backward()
+        nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
         # TODO: Second Stage
@@ -440,9 +439,7 @@ class LearnDiversifyEnv(object):
             else:
                 with torch.cuda.amp.autocast(enabled=True):
                     ne_dfd_loss = (
-                        -self.dfd.module(
-                            student_tuples, teacher_tuples, labels, only_alignment=True
-                        )
+                        -self.dfd.module(student_tuples, teacher_tuples)
                         * 0.8
                     )
             # TODO: 5.to Combine all Loss in stage two
@@ -456,6 +453,7 @@ class LearnDiversifyEnv(object):
             self.convertor_optimizer.zero_grad()
             # self.optimizer.zero_grad()
             self.scaler.scale(loss_2).backward()
+            nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
             self.scaler.step(self.convertor_optimizer)
             self.scaler.update()
         else:
