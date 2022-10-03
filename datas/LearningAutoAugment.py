@@ -28,85 +28,6 @@ class Normalize(nn.Module):
         x = F.normalize(x, x.mean(0, keepdim=True), x.std(0, keepdim=True) + 1e-6, inplace=False)
         return x
 
-
-class Flow_Attention(nn.Module):
-    # flow attention in normal version
-    def __init__(self, d_input, d_model, d_output, n_heads, drop_out=0.05, eps=1e-6):
-        super(Flow_Attention, self).__init__()
-        self.n_heads = n_heads
-        self.query_projection = nn.Linear(d_input, d_model)
-        self.key_projection = nn.Linear(d_input, d_model)
-        self.value_projection = nn.Linear(d_input, d_model)
-        self.out_projection = nn.Linear(d_model, d_output)
-        self.dropout = nn.Dropout(drop_out)
-        self.eps = eps
-
-    def kernel_method(self, x):
-        return torch.sigmoid(x)
-
-    def dot_product(self, q, k, v):
-        kv = torch.einsum("nhld,nhlm->nhdm", k, v)
-        qkv = torch.einsum("nhld,nhdm->nhlm", q, kv)
-        return qkv
-
-    def forward(self, queries, keys, values):
-        ## input: B (L or S) D; output: B L D
-        ## Note: queries, keys, values are not projected yet
-        ## 1. Linear projection
-        B, L, _ = queries.shape
-        _, S, _ = keys.shape
-        queries = self.query_projection(queries).view(B, L, self.n_heads, -1)
-        keys = self.key_projection(keys).view(B, S, self.n_heads, -1)
-        values = self.value_projection(values).view(B, S, self.n_heads, -1)
-        queries = queries.transpose(1, 2)
-        keys = keys.transpose(1, 2)
-        values = values.transpose(1, 2)
-        # 2. Non-negative projection
-        queries = self.kernel_method(queries)
-        keys = self.kernel_method(keys)
-        ## 3. Flow-Attention
-        # (1) Calculate incoming and outgoing flow
-        sink_incoming = 1.0 / (
-            torch.einsum("nhld,nhd->nhl", queries + self.eps, keys.sum(dim=2) + self.eps)
-        )
-        source_outgoing = 1.0 / (
-            torch.einsum("nhld,nhd->nhl", keys + self.eps, queries.sum(dim=2) + self.eps)
-        )
-        # (2) conservation refine for source and sink
-        conserved_sink = torch.einsum(
-            "nhld,nhd->nhl",
-            queries + self.eps,
-            (keys * source_outgoing[:, :, :, None]).sum(dim=2) + self.eps,
-        )
-        conserved_source = torch.einsum(
-            "nhld,nhd->nhl",
-            keys + self.eps,
-            (queries * sink_incoming[:, :, :, None]).sum(dim=2) + self.eps,
-        )
-        conserved_source = torch.clamp(conserved_source, min=-1.0, max=1.0)  # for stability
-        # (3) Competition & Allocation
-        sink_allocation = torch.sigmoid(
-            conserved_sink * (float(queries.shape[2]) / float(keys.shape[2]))
-        )
-        source_competition = torch.softmax(conserved_source, dim=-1) * float(keys.shape[2])
-        # (4) dot product
-        x = (
-            self.dot_product(
-                queries * sink_incoming[:, :, :, None],  # for value normalization
-                keys,
-                values * source_competition[:, :, :, None],
-            )  # competition
-            * sink_allocation[:, :, :, None]
-        ).transpose(
-            1, 2
-        )  # allocation
-        ## (5) Final projection
-        x = x.reshape(B, L, -1)
-        x = self.out_projection(x)
-        x = self.dropout(x)
-        return x
-
-
 def _apply_op(
     img: Tensor,
     op_name: str,
@@ -194,7 +115,7 @@ def _apply_op(
 class Reshape(nn.Module):
     def __init__(self, C, H, W, P):
         super(Reshape, self).__init__()
-        self.conv = nn.Conv2d(C, C, (7, 7), (7, 7), bias=False, groups=C)
+        self.conv = nn.AvgPool2d(kernel_size=(7,7),stride=(7,7))
         self.P = P
 
     def forward(self, x):
@@ -307,6 +228,7 @@ class LearningAutoAugment(transforms.AutoAugment):
                             torch.Tensor([0.229, 0.224, 0.225])[None, :, None, None].cuda()
                         ).add_(torch.Tensor([0.485, 0.456, 0.406])[None, :, None, None].cuda())
                     img = img * 255
+                    img = torch.floor(img + 0.5)
                     torch.clip_(img, 0, 255)
                     img = img.type(torch.uint8)
                 assert (
