@@ -1,7 +1,7 @@
 import copy
 import math
 
-import einops
+import einops,random
 import numpy as np
 import PIL.Image
 import torch
@@ -324,27 +324,30 @@ class LearningAutoAugment(transforms.AutoAugment):
                 results = []
                 lasbels = [y]
                 results.append(self.tran(img / 255))
+                b = img.shape[0]
                 # TODO: 应当用竞争机制来生成对应的输出...
                 for randindex in randperm:
                     prob = torch.rand((1,))
                     sign = torch.randint(2, (1,))
                     policy = self.policies[randindex]
                     (op_name, p, magnitude_id) = policy
-                    if prob <= self.p:
-                        if op_name != "CutMix":
-                            magnitudes, signed = op_meta[op_name]
-                            magnitude = (
-                                float(magnitudes[magnitude_id].item())
-                                if magnitude_id is not None
-                                else 0.0
+                    p = self.p
+                    if op_name != "CutMix":
+                        magnitudes, signed = op_meta[op_name]
+                        magnitude = (
+                            float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                        )
+                        if signed and sign:
+                            magnitude *= -1.0
+                        index = torch.LongTensor(random.sample(range(b),int(p*b))).to(img.device)
+                        if index.shape[0]>0:
+                            img[index] = _apply_op(
+                                img[index], op_name, magnitude, interpolation=self.interpolation, fill=fill
                             )
-                            if signed and sign:
-                                magnitude *= -1.0
-                            img = _apply_op(
-                                img, op_name, magnitude, interpolation=self.interpolation, fill=fill
-                            )
-                        else:
+                    else:
+                        if prob <= p:
                             img, y = cutmix(img, y, num_classes=y.shape[1])
+
                     results.append(self.tran(img / 255))
                     lasbels.append(y)
 
