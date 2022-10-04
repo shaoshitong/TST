@@ -84,6 +84,8 @@ criticion:
     KDLoss
   temperature:
     1
+  alpha:
+    1
 augmented_ratio:
   0
 dfd:

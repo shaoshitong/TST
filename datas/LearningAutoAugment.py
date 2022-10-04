@@ -261,8 +261,8 @@ class LearningAutoAugment(transforms.AutoAugment):
                         )
                         if signed and sign:
                             magnitude *= -1.0
-                        index = torch.LongTensor(random.sample(range(b),int(p*b))).to(img.device)
-                        if index.shape[0]>0:
+                        if int(p * b) > 0:
+                            index = torch.randperm(b)[:int(p*b)].to(img.device)
                             img[index] = _apply_op(
                                 img[index], op_name, magnitude, interpolation=self.interpolation, fill=fill
                             )

@@ -275,7 +275,7 @@ class LearnDiversifyEnv(object):
             if targets != None
             else 0.0
         )
-        return hard_loss + (temperature ** 2) * soft_loss
+        return hard_loss + (temperature ** 2) * soft_loss * self.yaml['criticion']['alpha']
 
     def Contextual(self, a, b):
         acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8) + 1e-8  # (b,)

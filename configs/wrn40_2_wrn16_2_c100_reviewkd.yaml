@@ -90,6 +90,8 @@ criticion:
     KDLoss
   temperature:
     4
+  alpha:
+    1
 augmented_ratio:
   0
 

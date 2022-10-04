@@ -23,14 +23,14 @@ LAA:
 img_size:
   32
 sc_lr:
-  0.01
+  1
 weights:
-  - 0.5
+  - 1
   - 1
   - 0
   - 0
   - 1
-  - 0.5
+  - 1
 augnettype:
   SmallImageAugNet
 data_path:
@@ -46,7 +46,7 @@ test_batch_size:
 reward_accumuate_step:
   8
 model_save_path:
-  ./checkpoints/SAC/
+  /checkpoints/resnet20/
 log_each:
   100
 optimizer:
@@ -88,6 +88,8 @@ criticion:
     KDLoss
   temperature:
     4
+  alpha:
+    1
 augmented_ratio:
   0
 

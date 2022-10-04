@@ -23,12 +23,12 @@ LAA:
 img_size:
   32
 sc_lr:
-  0.01
+  1
 weights:
   - 1
   - 1
-  - 1
-  - 1
+  - 0
+  - 0
   - 1
   - 1
 augnettype:
@@ -88,6 +88,8 @@ criticion:
     KDLoss
   temperature:
     4
+  alpha:
+    1
 augmented_ratio:
   0
 
