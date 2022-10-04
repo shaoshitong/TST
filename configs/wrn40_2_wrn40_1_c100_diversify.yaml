@@ -11,6 +11,8 @@ tcheckpoint:
   wrn_40_2.pth
 checkpoint:
 
+online:
+  False
 LAA:
   C: 3
   H: 32

@@ -11,6 +11,8 @@ tcheckpoint:
   vgg13_bn.pth
 checkpoint:
 
+online:
+  False
 LAA:
   C: 3
   H: 32

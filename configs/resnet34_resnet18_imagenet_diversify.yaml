@@ -11,6 +11,8 @@ tcheckpoint:
   resnet34_imagenet.pth
 checkpoint:
 
+online:
+  False
 LAA:
   C: 3
   H: 224

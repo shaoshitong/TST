@@ -11,6 +11,8 @@ tcheckpoint:
   resnet32x4.pth
 checkpoint:
 
+online:
+  False
 LAA:
   C: 3
   H: 32

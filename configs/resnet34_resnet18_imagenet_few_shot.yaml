@@ -11,6 +11,8 @@ tcheckpoint:
   resnet34_imagenet.pth
 checkpoint:
 
+online:
+  False
 LAA:
   C: 3
   H: 224
@@ -38,7 +40,7 @@ val_ratio:
 num_worker:
   4
 train_batch_size:
-  480
+  256
 test_batch_size:
   1024
 model_save_path:

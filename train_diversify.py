@@ -58,12 +58,10 @@ def set_device():
 def set_random_seed(number=0):
     torch.manual_seed(number)
     torch.cuda.manual_seed(number)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = True
     import random
-
     import numpy as np
-
     np.random.seed(number)
     random.seed(number)
 

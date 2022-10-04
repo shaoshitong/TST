@@ -116,6 +116,12 @@ class LearnDiversifyEnv(object):
             momentum=0.9,
             nesterov=True,
         )
+        if yaml['online'] == True:
+            self.convertor_optimizer.add_param_group({"params": self.teacher_model.parameters()})
+        else:
+            for param in self.teacher_model.parameters():
+                param.requires_grad = False
+
         self.convertor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.convertor_optimizer,
             T_max=self.yaml["epoch"],
@@ -219,8 +225,6 @@ class LearnDiversifyEnv(object):
             self.p_mu,
             self.p_logvar,
         ]
-        for param in self.teacher_model.parameters():
-            param.requires_grad = False
 
         if yaml["resume"] != "none":
             dict = torch.load(yaml["resume"])
