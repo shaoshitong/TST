@@ -133,6 +133,7 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
         num_worker=yaml_config["num_worker"],
         train_batch_size=yaml_config["train_batch_size"] // 2,
         test_batch_size=yaml_config["test_batch_size"] // 2,
+
     )
     criticion = getattr(losses, yaml_config["criticion"]["type"])(
         temperature=yaml_config["criticion"]["temperature"]

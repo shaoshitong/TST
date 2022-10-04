@@ -331,9 +331,10 @@ class LearnDiversifyEnv(object):
         target = F.one_hot(target, num_classes=self.num_classes).float()
         self._unfreeze_parameters(self.freeze_modeules_list)
         # TODO: Learning to diversify
-        inputs_max, target_temp, attention_index = self.convertor.module(
-            input.clone(), target, indexs, 2 * self.epoch
-        )
+        with torch.no_grad():
+            inputs_max, target_temp, attention_index = self.convertor.module(
+                input.clone(), target, indexs, 2 * self.epoch
+            )
         b, c, h, w = inputs_max.shape
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])

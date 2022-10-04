@@ -1,6 +1,6 @@
 
 data:
-  Original_DataLoader_ImageNet
+  Few_Shot_DataLoader_ImageNet
 tarch:
   resnet34_imagenet
 arch:
@@ -21,33 +21,33 @@ LAA:
 img_size:
   224
 sc_lr:
-  0.03
+  0.01
 weights:
   - 1
-  - 1
-  - 1
-  - 1
-  - 1
-  - 1
+  - 0
+  - 0
+  - 0
+  - 0
+  - 0
 augnettype:
   SmallImageAugNet
 data_path:
-  /home/Bigdata/ilsvrc2012
+  /home/sst/dataset/ilsvrc2012
 val_ratio:
   0.05
 num_worker:
   4
 train_batch_size:
-  3072
+  512
 test_batch_size:
   1024
 model_save_path:
-  ./checkpoints/SAC/
+  /checkpoints/resnet18/
 log_each:
   100
 optimizer:
   lr:
-    0.3
+    0.1
   type:
     SGD
   weight_decay:
@@ -108,7 +108,7 @@ dfd:
   mode:
     conv
 only_stage_one:
-  False
+  True
 ckpt_root:
   "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
 local_ckpt_path:
