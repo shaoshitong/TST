@@ -164,17 +164,17 @@ class SMSEKD(nn.Module):
             features_student[i] = self.student_bns[i](features_student[i])
             features_teacher[i] = self.teacher_fcs[i](features_teacher[i])
             features_student[i] = self.student_fcs[i](features_student[i])
-        kl_loss = lambda pred, target, tem=4: (tem ** 2) * F.kl_div(
+        kl_loss = lambda pred, target, tem=1: 0.1 * (tem ** 2) * F.kl_div(
             torch.log_softmax(pred / tem, 1), torch.softmax(target / tem, 1), reduction="batchmean"
         )
         total_loss = 0.0
         for i in range(l):
-            if not only_alignment:
-                m = features_teacher[i].detach()
-            else:
-                m = features_teacher[i]
+            m = features_teacher[i]
             total_loss += kl_loss(features_student[i], m)
         if not only_alignment:
+            for i in range(l):
+                total_loss -= F.cross_entropy(features_teacher[i], labels, reduction="mean")
+        else:
             for i in range(l):
                 total_loss += F.cross_entropy(features_teacher[i], labels, reduction="mean")
         return total_loss
