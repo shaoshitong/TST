@@ -244,7 +244,7 @@ class LearningAutoAugment(transforms.AutoAugment):
                 op_meta = self._augmentation_space(10, img_size)
                 # TODO: 让每种操作都进行，所以模型该学习何物？
                 results = []
-                lasbels = [y]
+                labels = y
                 results.append(self.tran(img / 255))
                 b = img.shape[0]
                 # TODO: 应当用竞争机制来生成对应的输出...
@@ -268,13 +268,11 @@ class LearningAutoAugment(transforms.AutoAugment):
                             )
                     else:
                         if prob <= p:
-                            img, y = cutmix(img, y, num_classes=y.shape[1])
+                            img, labels = cutmix(img, y, num_classes=y.shape[1])
 
                     results.append(self.tran(img / 255))
-                    lasbels.append(y)
 
                 results = torch.stack(results, 0)  # P,B,C,H,W
-                labels = torch.stack(lasbels, 0)
 
                 self.register_buffer("results", results)
                 self.register_buffer("labels", labels)
@@ -328,7 +326,4 @@ class LearningAutoAugment(transforms.AutoAugment):
         result = (
             (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
         ).view(B, C, H, W)
-        labels = ((different_vector * labels[1:]).sum(0) + (1 - x0) * labels[0].unsqueeze(0)).view(
-            B, -1
-        )
         return result, labels, attention_vector.mean(1).squeeze()
