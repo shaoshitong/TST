@@ -34,13 +34,13 @@ weights:
 augnettype:
   SmallImageAugNet
 data_path:
-  /home/Bigdata/ilsvrc2012
+  /home/sst/dataset/ilsvrc2012
 val_ratio:
   0.05
 num_worker:
   4
 train_batch_size:
-  3072
+  32
 test_batch_size:
   1024
 model_save_path:

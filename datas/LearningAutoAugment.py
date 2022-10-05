@@ -177,11 +177,11 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: Learning Module
         self.fc = nn.Sequential()
         if H > 56 and W > 56:
-            self.fc.add_module("conv1", Reshape(C=C, H=H, W=W, P=len(self.policies)))
+            self.fc.add_module("conv1", Reshape(C=C, H=H, W=W, P=len(self.policies)+1))
             H, W = H // 7, W // 7
-        self.fc.add_module("fc1", nn.Linear(len(self.policies) * C * H * W, 512))
+        self.fc.add_module("fc1", nn.Linear((len(self.policies)+1)* C * H * W, 512))
         self.fc.add_module("relu", nn.ReLU(inplace=True))
-        self.fc.add_module("fc2", nn.Linear(512, len(self.policies)))
+        self.fc.add_module("fc2", nn.Linear(512, len(self.policies)+1))
         self.p = p
         for param in list(list(self.fc.parameters())):
             param.requires_grad = True
@@ -190,7 +190,7 @@ class LearningAutoAugment(transforms.AutoAugment):
 
     def set_buffer(self):
         number_of_samples = self.num_train_samples
-        number_of_policies = len(self.policies)
+        number_of_policies = len(self.policies) + 1
         self.buffer = torch.ones(number_of_samples, number_of_policies).cuda().float()
 
     def buffer_update(self, indexs, weight, epoch):
@@ -210,7 +210,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         Tensor -> Tensor (to translate)
         """
-        randperm = torch.arange(len(self.policies))
+        randperm = torch.arange(len(self.policies)+1)
         with torch.no_grad():
             assert isinstance(img, Tensor), "The input must be Tensor!"
             assert (
@@ -248,7 +248,7 @@ class LearningAutoAugment(transforms.AutoAugment):
                 results.append(self.tran(img / 255))
                 b = img.shape[0]
                 # TODO: 应当用竞争机制来生成对应的输出...
-                for randindex in randperm:
+                for randindex in randperm[:-1]:
                     prob = torch.rand((1,))
                     sign = torch.randint(2, (1,))
                     policy = self.policies[randindex]
@@ -283,7 +283,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
         # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
         # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
-
         results.requires_grad = True
         labels.requires_grad = True
         P, B, C, H, W = results.shape
@@ -291,7 +290,7 @@ class LearningAutoAugment(transforms.AutoAugment):
             results = results.view(P, B, -1)  # P,B,C*H*W
             attention_vector = (
                 einops.rearrange(
-                    torch.sigmoid(self.fc(einops.rearrange(results[1:], "p b c -> b (p c)"))),
+                    torch.sigmoid(self.fc(einops.rearrange(results, "p b c -> b (p c)"))),
                     "b c -> c b",
                 )[..., None]
                 + 1
@@ -299,7 +298,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         else:
             attention_vector = (
                 einops.rearrange(
-                    torch.sigmoid(self.fc(results[1:])),
+                    torch.sigmoid(self.fc(results)),
                     "b c -> c b",
                 )[..., None]
                 + 1
@@ -309,12 +308,12 @@ class LearningAutoAugment(transforms.AutoAugment):
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
 
         # TODO: 解决数值不稳定的问题
-        self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
-        use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
-        if epoch % 2 == 0:
-            attention_vector = use_attention_vector.detach()
-        else:
-            attention_vector = attention_vector
+        # self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
+        # use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
+        # if epoch % 2 == 0:
+        #     attention_vector = use_attention_vector.detach()
+        # else:
+        #     attention_vector = attention_vector
         # TODO: End
         x0 = attention_vector[0]  # 1,B,1
         different_vector = attention_vector - torch.cat(
@@ -324,6 +323,10 @@ class LearningAutoAugment(transforms.AutoAugment):
             -1
         ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
         result = (
-            (different_vector * results[1:]).sum(0) + (1 - x0) * results[0].unsqueeze(0)
+            (different_vector * results).sum(0)
         ).view(B, C, H, W)
+
+        if (indexs == 10).sum().item() != 0:
+            from utils.save_Image import  change_tensor_to_image
+            change_tensor_to_image(result[0],"images",f"m_{epoch}")
         return result, labels, attention_vector.mean(1).squeeze()
