@@ -436,7 +436,7 @@ class LearnDiversifyEnv(object):
                 * (self.yaml["criticion"]["temperature"] ** 2)
             )
             distance2 = F.kl_div(t_aug_logits.log_softmax(1), target, reduction="batchmean")
-            task_loss = distance2 + distance1 * 0.8  # left 0.8 right `.1
+            task_loss = distance2 * 0.1 + distance1 * 0.8  # left 0.8 right `.1
 
             # TODO: 4 negative dfd loss
             if self.weights[3] == 0:
