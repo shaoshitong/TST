@@ -17,7 +17,7 @@ from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import wandb
-from Env.Environment_GAN import *
+from Env.Environment_Attack import *
 
 sys.path.append(os.path.join(os.getcwd()))
 import datas
