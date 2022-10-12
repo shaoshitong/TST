@@ -14,7 +14,7 @@ from omegaconf import OmegaConf
 
 import wandb
 from Env.Environment import PolicyEnv
-from Env.Environment2 import LearnDiversifyEnv
+from Env.Environment_LLA import LearnDiversifyEnv
 
 sys.path.append(os.path.join(os.getcwd()))
 import datas

@@ -26,10 +26,10 @@ sc_lr:
   0.01
 weights:
   - 1
-  - 1
   - 0
   - 0
-  - 1
+  - 0
+  - 0
   - 1
 augnettype:
   SmallImageAugNet

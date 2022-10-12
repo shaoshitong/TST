@@ -1,119 +1,81 @@
+import random
+
+import PIL.Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms
+from torchvision import models
 
+class stnGenerator(nn.Module):
+    ''' 仿射变换 '''
 
-class AugNet(nn.Module):
-    def __init__(self):
-        super(AugNet, self).__init__()
-        ############# Trainable Parameters
-        self.noise_lv = nn.Parameter(torch.zeros(1))
-        self.shift_var = nn.Parameter(torch.empty(3, 216, 216))
-        nn.init.normal_(self.shift_var, 1, 0.1)
-        self.shift_mean = nn.Parameter(torch.zeros(3, 216, 216))
-        nn.init.normal_(self.shift_mean, 0, 0.1)
+    def __init__(self, zdim=10, imsize=[32, 32], mode='translate'):
+        super().__init__()
+        self.mode = mode
+        self.zdim = zdim
 
-        self.shift_var2 = nn.Parameter(torch.empty(3, 212, 212))
-        nn.init.normal_(self.shift_var2, 1, 0.1)
-        self.shift_mean2 = nn.Parameter(torch.zeros(3, 212, 212))
-        nn.init.normal_(self.shift_mean2, 0, 0.1)
+        self.mapz = nn.Linear(zdim, imsize[0] * imsize[1])
+        if imsize == [32, 32]:
+            self.loc = nn.Sequential(
+                nn.Conv2d(4, 16, 5), nn.AvgPool2d(2), nn.ReLU(),
+                nn.Conv2d(16, 32, 5), nn.AvgPool2d(2), nn.ReLU(), )
+            self.fc_loc = nn.Sequential(
+                nn.Linear(32 * 5 * 5, 32), nn.ReLU(),
+                nn.Linear(32, 6))
+        elif imsize == [224, 224]:
+            self.loc = nn.Sequential(
+                nn.Conv2d(4, 16, 7, 2), nn.AvgPool2d(2), nn.ReLU(),
+                nn.Conv2d(16, 32, 7, 2), nn.AvgPool2d(2), nn.ReLU(), )
+            self.fc_loc = nn.Sequential(
+                nn.Linear(32 * 12 * 12, 32), nn.ReLU(),
+                nn.Linear(32, 6))
+        # init the weight
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0]))
 
-        self.shift_var3 = nn.Parameter(torch.empty(3, 208, 208))
-        nn.init.normal_(self.shift_var3, 1, 0.1)
-        self.shift_mean3 = nn.Parameter(torch.zeros(3, 208, 208))
-        nn.init.normal_(self.shift_mean3, 0, 0.1)
-
-        self.shift_var4 = nn.Parameter(torch.empty(3, 220, 220))
-        nn.init.normal_(self.shift_var4, 1, 0.1)
-        self.shift_mean4 = nn.Parameter(torch.zeros(3, 220, 220))
-        nn.init.normal_(self.shift_mean4, 0, 0.1)
-
-        self.norm = nn.InstanceNorm2d(3)
-
-        ############## Fixed Parameters (For MI estimation
-        self.spatial = nn.Conv2d(3, 3, 9).cuda()
-        self.spatial_up = nn.ConvTranspose2d(3, 3, 9).cuda()
-
-        self.spatial2 = nn.Conv2d(3, 3, 13).cuda()
-        self.spatial_up2 = nn.ConvTranspose2d(3, 3, 13).cuda()
-
-        self.spatial3 = nn.Conv2d(3, 3, 17).cuda()
-        self.spatial_up3 = nn.ConvTranspose2d(3, 3, 17).cuda()
-
-        self.spatial4 = nn.Conv2d(3, 3, 5).cuda()
-        self.spatial_up4 = nn.ConvTranspose2d(3, 3, 5).cuda()
-
-        self.color = nn.Conv2d(3, 3, 1).cuda()
-
-        for param in list(list(self.color.parameters()) +
-                          list(self.spatial.parameters()) + list(self.spatial_up.parameters()) +
-                          list(self.spatial2.parameters()) + list(self.spatial_up2.parameters()) +
-                          list(self.spatial3.parameters()) + list(self.spatial_up3.parameters()) +
-                          list(self.spatial4.parameters()) + list(self.spatial_up4.parameters())
-                          ):
-            param.requires_grad = False
-
-    def forward(self, x, estimation=False):
-        if not estimation:
-            spatial = nn.Conv2d(3, 3, 9).cuda()
-            spatial_up = nn.ConvTranspose2d(3, 3, 9).cuda()
-
-            spatial2 = nn.Conv2d(3, 3, 13).cuda()
-            spatial_up2 = nn.ConvTranspose2d(3, 3, 13).cuda()
-
-            spatial3 = nn.Conv2d(3, 3, 17).cuda()
-            spatial_up3 = nn.ConvTranspose2d(3, 3, 17).cuda()
-
-            spatial4 = nn.Conv2d(3, 3, 5).cuda()
-            spatial_up4 = nn.ConvTranspose2d(3, 3, 5).cuda()
-
-            color = nn.Conv2d(3, 3, 1).cuda()
-            weight = torch.randn(5)
-
-            x = x + torch.randn_like(x) * self.noise_lv * 0.01
-            x_c = torch.tanh(F.dropout(color(x), p=.2))
-
-            x_sdown = spatial(x)
-            x_sdown = self.shift_var * self.norm(x_sdown) + self.shift_mean
-            x_s = torch.tanh(spatial_up(x_sdown))
-            #
-            x_s2down = spatial2(x)
-            x_s2down = self.shift_var2 * self.norm(x_s2down) + self.shift_mean2
-            x_s2 = torch.tanh(spatial_up2(x_s2down))
-            #
-            #
-            x_s3down = spatial3(x)
-            x_s3down = self.shift_var3 * self.norm(x_s3down) + self.shift_mean3
-            x_s3 = torch.tanh(spatial_up3(x_s3down))
-
-            #
-            x_s4down = spatial4(x)
-            x_s4down = self.shift_var4 * self.norm(x_s4down) + self.shift_mean4
-            x_s4 = torch.tanh(spatial_up4(x_s4down))
-
-            output = (weight[0] * x_c + weight[1] * x_s + weight[2] * x_s2 + weight[3] * x_s3 + weight[
-                4] * x_s4) / weight.sum()
+    def forward(self, x, return_H=False):
+        z = torch.randn(len(x), self.zdim).to(x.device)
+        z = self.mapz(z).view(len(x), 1, x.size(2), x.size(3))
+        loc = self.loc(torch.cat([x, z], dim=1))  # [N, -1]
+        loc = loc.view(len(loc), -1)
+        H = self.fc_loc(loc) * 2
+        H = H.view(len(H), 2, 3)
+        H[:,0,2] = torch.tanh(H[:,0,2])/5
+        H[:,1,2] = torch.tanh(H[:,1,2])/5
+        if self.mode == 'translate':
+            H[:, 0, 0] = 1
+            H[:, 0, 1] = 0
+            H[:, 1, 0] = 0
+            H[:, 1, 1] = 1
+        grid = F.affine_grid(H, x.size())
+        x = F.grid_sample(x, grid)
+        if return_H:
+            return x, H
         else:
-            x = x + torch.randn_like(x) * self.noise_lv * 0.01
-            x_c = torch.tanh(self.color(x))
-            #
-            x_sdown = self.spatial(x)
-            x_sdown = self.shift_var * self.norm(x_sdown) + self.shift_mean
-            x_s = torch.tanh(self.spatial_up(x_sdown))
-            #
-            x_s2down = self.spatial2(x)
-            x_s2down = self.shift_var2 * self.norm(x_s2down) + self.shift_mean2
-            x_s2 = torch.tanh(self.spatial_up2(x_s2down))
-
-            x_s3down = self.spatial3(x)
-            x_s3down = self.shift_var3 * self.norm(x_s3down) + self.shift_mean3
-            x_s3 = torch.tanh(self.spatial_up3(x_s3down))
-
-            x_s4down = self.spatial4(x)
-            x_s4down = self.shift_var4 * self.norm(x_s4down) + self.shift_mean4
-            x_s4 = torch.tanh(self.spatial_up4(x_s4down))
-
-            output = (x_c + x_s + x_s2 + x_s3 + x_s4) / 5
+            return x
 
 
-        return torch.sigmoid(output)
+class TranslateNet(nn.Module):
+    def __init__(self, type="imagenet"):
+        super(TranslateNet, self).__init__()
+        ############# Trainable Parameters
+        self.trans = (
+            transforms.Compose(
+                [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
+            )
+            if type == "cifar10"
+            else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        )
+        self.stngen = stnGenerator(imsize=[224, 224])
+        self.iter = 0
+    def forward(self, x):
+        b, c, h, w = x.shape
+        x = F.interpolate(x, size=[224, 224], mode="nearest")
+        x = self.stngen(x)
+        output = F.interpolate(x, [h, w])
+        if random.random()>0.9:
+            from utils.save_Image import change_tensor_to_image
+            change_tensor_to_image(output[0],"images",f"{self.iter}")
+            self.iter+=1
+        return output
