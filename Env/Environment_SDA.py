@@ -100,13 +100,17 @@ class SDAGenerator:
         )
         self.yaml = yaml
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
-        self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=self.lr, momentum=0.9)
+        self.optimizer = torch.optim.AdamW(self.SDA.parameters(), lr=self.lr)
         if yaml["SDA"]["finetune_teacher"]:
             self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu), device_ids=[gpu])
-            self.optimizer.add_param_group({"params": self.afe.parameters()})
+            self.optimizer_afe = torch.optim.AdamW(self.afe.parameters(), lr=self.lr, weight_decay=1e-4)
 
-    def __call__(self, student, teacher, x, y, if_learning=True):
-        augment_x, augment_y = self.step(student, teacher, x, y, if_learning)
+    def __call__(self, student, teacher, x, y, if_learning=True, if_afe=False):
+        if if_afe:
+            self.step_afe(student, teacher, x, y, if_learning)
+            augment_x, augment_y = x, y
+        else:
+            augment_x, augment_y = self.step(student, teacher, x, y, if_learning)
         return augment_x, augment_y, self.loss
 
     def step(self, student, teacher, x, y, if_learning):
@@ -138,6 +142,29 @@ class SDAGenerator:
             augment_y = y.clone()
 
         return augment_x.detach(), augment_y.detach()
+
+    def step_afe(self, student, teacher, x, y, if_learning):
+        if not self.yaml["only_stage_one"] and if_learning:
+            student.eval()
+            student.requires_grad_(False)
+            augment_x = x.clone()
+            augment_y = y.clone()
+            augment_x.requires_grad = True
+            augment_x = self.SDA(augment_x)
+            teacher_tuple, teacher_out = teacher(augment_x, is_feat=True)
+            teacher_tuple = teacher_tuple[:-1]
+            if self.yaml["SDA"]["finetune_teacher"]:
+                teacher_out = self.afe(teacher_tuple)
+            loss = F.cross_entropy(teacher_out, augment_y)
+            self.optimizer_afe.zero_grad()
+            loss.backward()
+            self.loss = loss.item()
+            self.optimizer_afe.step()
+            # give back
+            student.train()
+            student.requires_grad_(True)
+        else:
+            self.loss = 0.0
 
 
 class LearnDiversifyEnv(object):
@@ -275,7 +302,7 @@ class LearnDiversifyEnv(object):
             ne_ce_loss,
         )
 
-    def run_one_convertor_batch_size(self, batch_idx, indexs, input, target):
+    def run_one_convertor_batch_size(self, batch_idx, indexs, input, target, if_afe):
         input = input.float().cuda(self.gpu)
         target = target.cuda(self.gpu)
         target = target.view(-1)
@@ -283,7 +310,7 @@ class LearnDiversifyEnv(object):
         # TODO: Learning to diversify
         with torch.cuda.amp.autocast(enabled=True):
             inputs_max, target_temp, ne_ce_loss = self.convertor(
-                self.student_model, self.teacher_model, input, target
+                self.student_model, self.teacher_model, input, target, True, if_afe
             )
         if batch_idx == 0:
             from utils.save_Image import change_tensor_to_image
@@ -304,14 +331,14 @@ class LearnDiversifyEnv(object):
         top1 = dist.all_reduce(top1, op=dist.ReduceOp.SUM) / torch.cuda.device_count()
         return top1.cpu().item(), loss.cpu().item()
 
-    def run_one_convertor_epoch(self):
+    def run_one_convertor_epoch(self, if_afe):
         self.student_model.train()
         self.convertor.SDA.train()
         total_ne_ce_loss = 0
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 ne_ce_loss,
-            ) = self.run_one_convertor_batch_size(batch_idx, index, input, target)
+            ) = self.run_one_convertor_batch_size(batch_idx, index, input, target, if_afe)
             if self.gpu == 0:
                 self.wandb.log(
                     {
@@ -330,7 +357,7 @@ class LearnDiversifyEnv(object):
             self.ff.write(
                 f"epoch:{self.epoch}, ne_ce_loss:{total_ne_ce_loss}\n"
             )
-            print("ne_ce_loss is:", total_ne_ce_loss)
+            print(f"when train {'AFE' if if_afe else 'SDA'}, ne_ce_loss is: {total_ne_ce_loss}")
 
     def run_one_train_epoch(self):
         """============================train=============================="""
@@ -342,8 +369,10 @@ class LearnDiversifyEnv(object):
 
         # TODO: DIVERSIFY LEARNING
         if self.epoch in self.convertor_training_epoch:
-            for i in range(self.convertor_epoch_number):
-                self.run_one_convertor_epoch()
+            for i in range(int(self.convertor_epoch_number/2)):
+                self.run_one_convertor_epoch(True)
+            for i in range(int(self.convertor_epoch_number/2)):
+                self.run_one_convertor_epoch(False)
 
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
