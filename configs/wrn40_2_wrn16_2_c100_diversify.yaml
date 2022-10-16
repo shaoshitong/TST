@@ -20,7 +20,7 @@ weights:
 augnettype:
   SmallImageAugNet
 data_path:
-  /data/data/cifar100
+  /home/sst/dataset/c100
 num_worker:
   4
 train_batch_size:
@@ -38,7 +38,7 @@ SDA:
   lr:
     0.01
   pretrain_path:
-    /home/sst/product/RLDCD/checkpoints/Augmentation/
+    ./checkpoints/Augmentation/
   dataset_type:
     CIFAR
   solve_number:
@@ -114,7 +114,7 @@ dfd:
   mode:
     conv
 only_stage_one:
-  True
+  False
 ckpt_root:
   "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
 local_ckpt_path:

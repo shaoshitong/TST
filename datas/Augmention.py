@@ -97,13 +97,10 @@ class Mulit_Augmentation(nn.Module):
     def __init__(self, pretrain_path, dataset_type, solve_number):
         super(Mulit_Augmentation, self).__init__()
         self.len_policies = len(self.LEARNING_STN_LIST) + len(self.LEARNING_COLOR_LIST)
-        self.probabilities = Parameter(
-            0.5
-            * torch.ones(
-                self.len_policies + len(self.NO_LEARNING_COLOR_LIST) + len(self.OTHER_LIST)
-            )
+        self.probabilities = Parameter(torch.zeros(
+                self.len_policies + len(self.NO_LEARNING_COLOR_LIST) + len(self.OTHER_LIST))
         )
-        self.magnitudes = Parameter(0.5 * torch.ones(self.len_policies))
+        self.magnitudes = Parameter(torch.zeros(self.len_policies))
         self.pretrain_path = pretrain_path
         self.dataset_type = dataset_type
         self.solve_number = solve_number
@@ -159,9 +156,8 @@ class Mulit_Augmentation(nn.Module):
         self.magnitudes.data = torch.clamp(self.magnitudes.data, EPS, 1 - EPS)
 
     def forward(self, image):
-        self._clamp()
-        p = self.probabilities
-        m = self.magnitudes
+        p = torch.sigmoid(self.probabilities)
+        m = torch.sigmoid(self.magnitudes)
         p = relaxed_bernoulli(p)
         len = p.shape[0]
         index = torch.randperm(len).to(image.device)
@@ -172,8 +168,6 @@ class Mulit_Augmentation(nn.Module):
         for tran in self.learning_color_model_list:
             if p_iter in index:
                 _m = m[p_iter].view(-1, 1).expand(image.shape[0], -1)
-                if random.random()>0.5:
-                    _m = _m * -1
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
                 result.append(now_image)
@@ -184,8 +178,6 @@ class Mulit_Augmentation(nn.Module):
         for tran in self.learning_stn_model_list:
             if p_iter in index:
                 _m = m[p_iter].view(-1, 1).expand(image.shape[0], -1)
-                if random.random()>0.5:
-                    _m = _m * -1
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
                 result.append(now_image)

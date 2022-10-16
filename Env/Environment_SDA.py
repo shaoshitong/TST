@@ -296,9 +296,9 @@ class LearnDiversifyEnv(object):
                         "ne_ce_loss": ne_ce_loss,
                         "dfd_loss": dfd_loss,
                         **{f"p_{i}": p for i, p in
-                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().tolist())},
+                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
                         **{f"m_{i}": m for i, m in
-                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().tolist())},
+                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().sigmoid().tolist())},
                     },
                     step=self.accumuate_count,
                 )
