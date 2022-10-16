@@ -24,7 +24,18 @@ SDA:
     4
   criticion_type:
     NO_CONFIDENCE
-
+  convertor_training_epoch:
+    - 32
+    - 62
+    - 92
+    - 122
+    - 152
+    - 182
+    - 212
+  convertor_epoch_number:
+    5
+  finetune_teacher:
+    True
 img_size:
   32
 weights:
