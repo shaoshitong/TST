@@ -1,7 +1,7 @@
 import copy
 import math
 
-import einops,random
+import einops
 import numpy as np
 import PIL.Image
 import torch
@@ -17,8 +17,6 @@ from torchvision.transforms.autoaugment import (
     Tensor,
 )
 
-from datas.Augmentation import cutmix
-
 
 class Normalize(nn.Module):
     def __init__(self):
@@ -27,6 +25,7 @@ class Normalize(nn.Module):
     def forward(self, x):
         x = F.normalize(x, x.mean(0, keepdim=True), x.std(0, keepdim=True) + 1e-6, inplace=False)
         return x
+
 
 def _apply_op(
     img: Tensor,
@@ -115,7 +114,7 @@ def _apply_op(
 class Reshape(nn.Module):
     def __init__(self, C, H, W, P):
         super(Reshape, self).__init__()
-        self.conv = nn.AvgPool2d(kernel_size=(7,7),stride=(7,7))
+        self.conv = nn.AvgPool2d(kernel_size=(7, 7), stride=(7, 7))
         self.P = P
 
     def forward(self, x):
@@ -177,11 +176,11 @@ class LearningAutoAugment(transforms.AutoAugment):
         # TODO: Learning Module
         self.fc = nn.Sequential()
         if H > 56 and W > 56:
-            self.fc.add_module("conv1", Reshape(C=C, H=H, W=W, P=len(self.policies)+1))
+            self.fc.add_module("conv1", Reshape(C=C, H=H, W=W, P=len(self.policies) + 1))
             H, W = H // 7, W // 7
-        self.fc.add_module("fc1", nn.Linear((len(self.policies)+1)* C * H * W, 512))
+        self.fc.add_module("fc1", nn.Linear((len(self.policies) + 1) * C * H * W, 512))
         self.fc.add_module("relu", nn.ReLU(inplace=True))
-        self.fc.add_module("fc2", nn.Linear(512, len(self.policies)+1))
+        self.fc.add_module("fc2", nn.Linear(512, len(self.policies) + 1))
         self.p = p
         for param in list(list(self.fc.parameters())):
             param.requires_grad = True
@@ -210,7 +209,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         """
         Tensor -> Tensor (to translate)
         """
-        randperm = torch.arange(len(self.policies)+1)
+        randperm = torch.arange(len(self.policies) + 1)
         with torch.no_grad():
             assert isinstance(img, Tensor), "The input must be Tensor!"
             assert (
@@ -257,14 +256,20 @@ class LearningAutoAugment(transforms.AutoAugment):
                     if op_name != "CutMix":
                         magnitudes, signed = op_meta[op_name]
                         magnitude = (
-                            float(magnitudes[magnitude_id].item()) if magnitude_id is not None else 0.0
+                            float(magnitudes[magnitude_id].item())
+                            if magnitude_id is not None
+                            else 0.0
                         )
                         if signed and sign:
                             magnitude *= -1.0
                         if int(p * b) > 0:
-                            index = torch.randperm(b)[:int(p*b)].to(img.device)
+                            index = torch.randperm(b)[: int(p * b)].to(img.device)
                             img[index] = _apply_op(
-                                img[index], op_name, magnitude, interpolation=self.interpolation, fill=fill
+                                img[index],
+                                op_name,
+                                magnitude,
+                                interpolation=self.interpolation,
+                                fill=fill,
                             )
                     else:
                         if prob <= p:
@@ -322,11 +327,10 @@ class LearningAutoAugment(transforms.AutoAugment):
         different_vector[-1] = attention_vector[
             -1
         ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
-        result = (
-            (different_vector * results).sum(0)
-        ).view(B, C, H, W)
+        result = ((different_vector * results).sum(0)).view(B, C, H, W)
 
         if (indexs == 10).sum().item() != 0:
-            from utils.save_Image import  change_tensor_to_image
-            change_tensor_to_image(result[0],"images",f"m_{epoch}")
+            from utils.save_Image import change_tensor_to_image
+
+            change_tensor_to_image(result[0], "images", f"m_{epoch}")
         return result, labels, attention_vector.mean(1).squeeze()

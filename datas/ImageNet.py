@@ -261,57 +261,59 @@ def Original_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, tes
     )
     return trainloader, testloader
 
+
 def Few_Shot_DataLoader_ImageNet(data_path, num_worker, train_batch_size=64, test_batch_size=64):
-        """
-        For data few shot
-        """
-        few_shot_ratio = 0.1
+    """
+    For data few shot
+    """
+    few_shot_ratio = 0.1
 
-        trainset =  torchvision.datasets.ImageFolder(
-                data_path + "/train",
-                transforms.Compose(
-                    [
-                        transforms.RandomResizedCrop(224),
-                        transforms.RandomHorizontalFlip(),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                    ]
-                ),
-            )
+    trainset = torchvision.datasets.ImageFolder(
+        data_path + "/train",
+        transforms.Compose(
+            [
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        ),
+    )
 
-        from sklearn.model_selection import StratifiedShuffleSplit
-        labels = trainset.targets
-        ss = StratifiedShuffleSplit(n_splits=1,test_size=1 - few_shot_ratio,random_state=0)
-        train_indices,valid_indices = list(ss.split(np.array(labels)[:,np.newaxis],labels))[0]
-        trainset = IndexDataset(torch.utils.data.Subset(trainset,train_indices))
-        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
-        testset = torchvision.datasets.ImageFolder(
-            data_path + "/val",
-            transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ]
-            ),
-        )
-        test_sampler = torch.utils.data.distributed.DistributedSampler(testset)
+    from sklearn.model_selection import StratifiedShuffleSplit
 
-        trainloader = torch.utils.data.DataLoader(
-            trainset,
-            batch_size=train_batch_size,
-            shuffle=(train_sampler is None),
-            num_workers=num_worker,
-            pin_memory=True,
-            sampler=train_sampler,
-        )
+    labels = trainset.targets
+    ss = StratifiedShuffleSplit(n_splits=1, test_size=1 - few_shot_ratio, random_state=0)
+    train_indices, valid_indices = list(ss.split(np.array(labels)[:, np.newaxis], labels))[0]
+    trainset = IndexDataset(torch.utils.data.Subset(trainset, train_indices))
+    train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+    testset = torchvision.datasets.ImageFolder(
+        data_path + "/val",
+        transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        ),
+    )
+    test_sampler = torch.utils.data.distributed.DistributedSampler(testset)
 
-        testloader = torch.utils.data.DataLoader(
-            testset,
-            batch_size=test_batch_size,
-            sampler=test_sampler,
-            num_workers=num_worker,
-            pin_memory=True,
-        )
-        return trainloader, testloader
+    trainloader = torch.utils.data.DataLoader(
+        trainset,
+        batch_size=train_batch_size,
+        shuffle=(train_sampler is None),
+        num_workers=num_worker,
+        pin_memory=True,
+        sampler=train_sampler,
+    )
+
+    testloader = torch.utils.data.DataLoader(
+        testset,
+        batch_size=test_batch_size,
+        sampler=test_sampler,
+        num_workers=num_worker,
+        pin_memory=True,
+    )
+    return trainloader, testloader

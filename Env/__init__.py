@@ -1,4 +1,3 @@
-from .Environment import PolicyEnv
-from .Environment_LLA import LearnDiversifyEnv
+from .Environment_SDA import LearnDiversifyEnv
 
-__all__ = ["LearnDiversifyEnv", "PolicyEnv"]
+__all__ = ["LearnDiversifyEnv"]

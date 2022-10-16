@@ -13,24 +13,24 @@ checkpoint:
 
 online:
   False
-LAA:
-  C: 3
-  H: 224
-  W: 224
-  p: 0.25
-  augmentation_policy:
-    imagenet
+SDA:
+  lr:
+    0.01
+  pretrain_path:
+    /home/sst/product/RLDCD/checkpoints/Augmentation/
+  dataset_type:
+    CIFAR
+  solve_number:
+    4
+  criticion_type:
+    NO_CONFIDENCE
+
 img_size:
-  224
-sc_lr:
-  0.01
+  32
 weights:
   - 1
   - 0
-  - 0
-  - 0
-  - 0
-  - 1
+  -
 augnettype:
   SmallImageAugNet
 data_path:

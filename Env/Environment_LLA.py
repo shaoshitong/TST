@@ -116,7 +116,7 @@ class LearnDiversifyEnv(object):
             momentum=0.9,
             nesterov=True,
         )
-        if yaml['online'] == True:
+        if yaml["online"] == True:
             self.convertor_optimizer.add_param_group({"params": self.teacher_model.parameters()})
         else:
             for param in self.teacher_model.parameters():
@@ -275,7 +275,7 @@ class LearnDiversifyEnv(object):
             if targets != None
             else 0.0
         )
-        return hard_loss + (temperature ** 2) * soft_loss * self.yaml['criticion']['alpha']
+        return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
     def Contextual(self, a, b):
         acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8) + 1e-8  # (b,)
@@ -378,7 +378,7 @@ class LearnDiversifyEnv(object):
             dfd_loss = torch.Tensor([0.0]).cuda(self.gpu)
         else:
             with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(student_tuple, teacher_tuple,labels,only_alignment=True)
+                dfd_loss = self.dfd(student_tuple, teacher_tuple, labels, only_alignment=True)
 
         # TODO: 3. Combine all Loss in stage one
         loss_1 = (
@@ -444,7 +444,9 @@ class LearnDiversifyEnv(object):
             else:
                 with torch.cuda.amp.autocast(enabled=True):
                     ne_dfd_loss = (
-                        -self.dfd.module(student_tuples, teacher_tuples,labels,only_alignment=False)
+                        -self.dfd.module(
+                            student_tuples, teacher_tuples, labels, only_alignment=False
+                        )
                         * 0.8
                     )
             # TODO: 5.to Combine all Loss in stage two

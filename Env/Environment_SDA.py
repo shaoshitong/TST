@@ -12,65 +12,79 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.transforms import AutoAugmentPolicy
 
-import wandb
-from datas.LearningAutoAugment import LearningAutoAugment
+from datas.Augmention import Mulit_Augmentation
 from helpers.correct_num import correct_num
 from helpers.log import Log
-
 from losses.SimpleMseKD import SMSEKD
-from utils.mmd import conditional_mmd_rbf
+from pretrain.CIFAR100_color import run_color
+from pretrain.CIFAR100_stn import run_stn
 
 
-def ne_kl_loss(student_logit, teacher_logit, y):
-    l = y.ndim
-    student_logit = student_logit.softmax(1)
-    teacher_logit = teacher_logit.softmax(1)
+def criticion(type):
+    def ne_ce_loss(student_out, teacher_out, label, alpha=1, beta=1):
+        t_loss = F.cross_entropy(teacher_out, label)
+        s_loss = F.cross_entropy(student_out, label)
+        return alpha * t_loss - beta * s_loss
 
-    if int(l)!=2 or (y.ndim==2 and y.shape[1]==1):
-        y = F.one_hot(y,num_classes=student_logit.shape[-1])
-    y = y.bool()
-    student_logit = student_logit[y]
-    teacher_logit = teacher_logit[y]
-    mask = teacher_logit < student_logit
-    if mask.sum().item()>0:
-        student_logit = student_logit[mask]
-        teacher_logit = teacher_logit[mask]
-        loss = (-torch.log(teacher_logit)+torch.log(student_logit)).mean()
+    def ne_confidence_ce_loss(student_out, teacher_out, label, alpha=1, beta=1):
+        mask = label.bool()
+        weight = 1 - teacher_out.softmax(1)[mask]
+        t_loss = F.cross_entropy(teacher_out, label, reduction="none")
+        s_loss = F.cross_entropy(student_out, label, reduction="none")
+        loss = ((alpha * t_loss - beta * s_loss) * weight).sum() / weight.sum()
+        return loss
+
+    if type == "NO_CONFIDENCE":
+        return ne_ce_loss
     else:
-        loss = torch.Tensor([0.]).cuda()
-    return loss
+        return ne_confidence_ce_loss
 
 
-class AttackGenerator(nn.Module):
-    def __init__(self, step_number, lr):
-        super(AttackGenerator, self).__init__()
-        self.step_number = step_number
-        self.lr = lr
+class SDAGenerator:
+    def __init__(self, yaml, gpu):
+        self.lr = yaml["SDA"]["lr"]
+        self.gpu = gpu
+        self.SDA = DDP(
+            Mulit_Augmentation(
+                pretrain_path=yaml["SDA"]["pretrain_path"],
+                dataset_type=yaml["SDA"]["dataset_type"],
+                solve_number=yaml["SDA"]["solve_number"],
+            ).cuda(gpu),
+            device_ids=[gpu],
+        )
+        self.yaml = yaml
+        self.criticion = criticion(yaml["SDA"]["criticion_type"])
+        self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=self.lr, momentum=0.9)
 
-    def forward(self, student, teacher, x, y):
-        return self.step(student,teacher,x,y)
+    def __call__(self, student, teacher, x, y):
+        augment_x, augment_y = self.step(student, teacher, x, y)
+        return augment_x, augment_y, self.loss
 
     def step(self, student, teacher, x, y):
-        '''
-        generate input
-        :return: detached x, y
-        '''
-        student.requires_grad_(False)
-        # attention: x is mean 0 and std 1, please make sure teacher is desirable for this kind of input!!!
-        augment_x = x.clone().detach()
-        augment_y = y.clone().detach()
-        augment_x.requires_grad = True
-        for step in range(self.step_number):
-            loss = ne_kl_loss(student(augment_x), teacher(augment_x), y)
-            if loss!=0:
-                loss.backward()
-                grad = augment_x.grad
-                augment_x.requires_grad = False
-                augment_x = augment_x - self.lr * grad
-                augment_x.requires_grad = True
-        student.requires_grad_(True)
+        if not self.yaml["only_stage_one"]:
+            self.SDA.requires_grad_(True)
+            student.eval()
+            student.requires_grad_(False)
+            augment_x = x.clone()
+            augment_y = y.clone()
+            augment_x.requires_grad = True
+            augment_x = self.SDA(augment_x)
+            loss = self.criticion(student(augment_x), teacher(augment_x), augment_y)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.loss = loss.item()
+            self.optimizer.step()
+            # give back
+            self.SDA.requires_grad_(False)
+            student.train()
+            student.requires_grad_(True)
+        else:
+            self.loss = 0.0
+        with torch.no_grad():
+            augment_x = self.SDA(x.clone())
+            augment_y = y.clone()
 
-        return augment_x,augment_y
+        return augment_x.detach(), augment_y.detach()
 
 
 class LearnDiversifyEnv(object):
@@ -117,86 +131,10 @@ class LearnDiversifyEnv(object):
             self.ff = open(time_path, "w")
 
         # TODO: Learning to diversify
-        if yaml["LAA"]["augmentation_policy"] == "cifar10":
-            policy_type = AutoAugmentPolicy.CIFAR10
-        elif yaml["LAA"]["augmentation_policy"] == "imagenet":
-            policy_type = AutoAugmentPolicy.IMAGENET
-        else:
-            raise NotImplementedError
-        print("sc_Lr",yaml['sc_lr'])
-        self.convertor = (
-            AttackGenerator(
-                step_number=2,
-                lr = yaml['sc_lr']
-            )
-        )
-
-
-        self.tran = (
-            transforms.Compose(
-                [transforms.Normalize([0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])]
-            )
-            if yaml["LAA"]["augmentation_policy"] == "cifar10"
-            else transforms.Normalize([0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        )
-        self.avgpool2d = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
-
-        if self.student_model.module.last_channel != self.teacher_model.module.last_channel:
-            self.teacher_expand = DDP(
-                nn.Linear(
-                    self.teacher_model.module.last_channel, self.student_model.module.last_channel
-                ).cuda(gpu),
-                device_ids=[gpu],
-            )
-        else:
-            self.teacher_expand = nn.Identity()
-
-        self.p_logvar = (
-            DDP(
-                nn.Sequential(
-                    nn.Linear(self.student_model.module.last_channel, 512),
-                    nn.GELU(),
-                    nn.Linear(512, 512),
-                    nn.LayerNorm(512),
-                    nn.LeakyReLU(),
-                ).cuda(gpu),
-                device_ids=[gpu],
-            )
-            if torch.cuda.is_available()
-            else nn.Sequential(
-                nn.Linear(self.student_model.module.last_channel, 512),
-                nn.GELU(),
-                nn.Linear(512, 512),
-                nn.LayerNorm(512),
-                nn.LeakyReLU(),
-            )
-        )
-
-        self.p_mu = (
-            DDP(
-                nn.Sequential(
-                    nn.Linear(self.student_model.module.last_channel, 512),
-                    nn.GELU(),
-                    nn.Linear(512, 512),
-                    nn.LayerNorm(512),
-                    nn.LeakyReLU(),
-                ).cuda(gpu),
-                device_ids=[gpu],
-            )
-            if torch.cuda.is_available()
-            else nn.Sequential(
-                nn.Linear(self.student_model.module.last_channel, 512),
-                nn.GELU(),
-                nn.Linear(512, 512),
-                nn.LayerNorm(512),
-                nn.LeakyReLU(),
-            )
-        )
+        self.pretrain()
+        print("pretrain finished successfully!")
+        self.convertor = SDAGenerator(yaml=yaml, gpu=gpu)
         # TODO: It is important to remember to add the last parameter in the optimizer
-        self.optimizer.add_param_group({"params": self.avgpool2d.parameters()})
-        self.optimizer.add_param_group({"params": self.p_logvar.parameters()})
-        self.optimizer.add_param_group({"params": self.p_mu.parameters()})
-        self.optimizer.add_param_group({"params": self.teacher_expand.parameters()})
         self.weights = yaml["weights"]
 
         # TODO: DFD
@@ -223,48 +161,17 @@ class LearnDiversifyEnv(object):
 
         self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
-        self.freeze_modeules_list = [
-            self.dfd,
-            self.student_model,
-            self.teacher_expand,
-            self.p_mu,
-            self.p_logvar,
-        ]
 
         if yaml["resume"] != "none":
             dict = torch.load(yaml["resume"])
             self.optimizer.load_state_dict(dict["optimizer"])
             self.scheduler.load_state_dict(dict["scheduler"])
             self.student_model.load_state_dict(dict["student_model"])
-            self.p_mu.load_state_dict(dict["p_mu"])
-            self.p_logvar.load_state_dict(dict["p_logvar"])
+            self.convertor.SDA.load_state_dict(dict["convertor"])
             self.scaler.load_state_dict(dict["scaler"])
             self.best_acc = dict["acc"]
             self.begin_epoch = self.epoch = dict["epoch"] + 1
             print(f"successfully load checkpoint from {yaml['resume']}")
-
-    def reset_parameters(self, modules):
-        for module in modules.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.trunc_normal_(module.weight.data, 0, 0.001)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias.data, 0)
-
-    def _freeze_parameters(self, modeules):
-        for module in modeules:
-            for i in module.modules():
-                i.requires_grad = False
-
-    def _unfreeze_parameters(self, modeules):
-        for module in modeules:
-            for i in module.modules():
-                i.requires_grad = False
-
-    def reparametrize(self, mu, logvar, factor=0.2):
-        std = logvar.div(2).exp()
-        eps = std.data.new(std.size()).normal_()  # 0-1 gaussian distribution
-        ratio = factor * std * eps
-        return mu + ratio  # mu - mean , ratio - std
 
     def KDLoss(self, student_output, teacher_output, targets=None, temperature=4):
         soft_loss = F.kl_div(
@@ -277,57 +184,7 @@ class LearnDiversifyEnv(object):
             if targets != None
             else 0.0
         )
-        return hard_loss + (temperature ** 2) * soft_loss * self.yaml['criticion']['alpha']
-
-    def Contextual(self, a, b):
-        acosineb = 1 - F.cosine_similarity(a, b, 1, 1e-8) + 1e-8  # (b,)
-        distance = (a.pow(2).sum(-1).sqrt() - b.pow(2).sum(-1).sqrt()).abs() + acosineb
-        return -torch.log(distance).mean()
-
-    def ConLoss(self, features, labels, temperature=0.07):
-        if len(features.shape) > 3:
-            features = features.view(features.shape[0], features.shape[1], -1)
-        b, c = features.shape[0], features.shape[1]
-        assert features.shape[0] == labels.shape[0], "batch size should be same"
-        labels = labels.contiguous().view(-1, 1)  # (bs,1)
-        mask = torch.eq(labels, labels.T).float().to(features.device)  # (bs,bs)
-        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)  # 2*bs,embedding_dim
-        dot_contrast = (contrast_feature @ contrast_feature.T) / temperature
-        logits_max, _ = torch.max(dot_contrast, dim=1, keepdim=True)
-        logits = dot_contrast - logits_max.detach()  # all < 0 # 因为对角线上是自己和自己，所以余弦相似度最大
-        # tile mask
-        mask = mask.repeat(c, c)
-        logits_mask = 1 - torch.eye(mask.shape[0]).to(
-            logits.device
-        )  # == 1- torch.eye(mask.shape[0])
-        mask = mask * logits_mask
-        # compute log_prob
-
-        exp_logits = torch.exp(logits) * logits_mask  # no identity
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))  # 已经是论文中所求的结果
-        # compute mean of log-likelihood over positive
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(
-            1
-        )  # 分子都是一对样本具备相同语义且不是同一对样本/分母都是一对样本具备相同语义且不是同一对样本
-        loss = -mean_log_prob_pos
-        loss = loss.mean()
-        return loss
-
-    def Loglikeli(self, mu, logvar, y_samples):
-        return (-((mu - y_samples) ** 2) / logvar.exp() - logvar).mean()
-
-    def Club(self, mu, logvar, y_samples):
-
-        positive = -((mu - y_samples) ** 2) / 2.0 / logvar.exp()
-        prediction_1 = mu.unsqueeze(1)  # shape [nsample,1,dim]
-        y_samples_1 = y_samples.unsqueeze(0)  # shape [1,nsample,dim]
-        negative = -((y_samples_1 - prediction_1) ** 2).mean(dim=1) / 2.0 / logvar.exp()
-        student_mi = (positive.sum(dim=-1) - negative.sum(dim=-1)).mean()
-
-        return student_mi
-
-    def Mmd(self, e1, e2, target, num_class):
-        return conditional_mmd_rbf(e1, e2, target, num_class)
+        return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
 
@@ -337,17 +194,18 @@ class LearnDiversifyEnv(object):
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
 
-
         # TODO: Learning to diversify
         with torch.cuda.amp.autocast(enabled=True):
-            inputs_max,target_temp = self.convertor(self.student_model,self.teacher_model,input,target)
-        b, c, h, w = inputs_max.shape
-        if batch_idx==0:
+            inputs_max, target_temp, ne_ce_loss = self.convertor(
+                self.student_model, self.teacher_model, input, target
+            )
+
+        if batch_idx == 0:
             from utils.save_Image import change_tensor_to_image
-            change_tensor_to_image(inputs_max[0],"image",f"cifar100_{self.epoch}")
+
+            change_tensor_to_image(inputs_max[0], "image", f"cifar100_{self.epoch}")
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
-
 
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
@@ -374,13 +232,10 @@ class LearnDiversifyEnv(object):
                 dfd_loss = self.dfd(student_tuple, teacher_tuple, labels, only_alignment=True)
 
         # TODO: 3. Combine all Loss in stage one
-        loss_1 = (
-                self.weights[0] * vanilla_kd_loss
-                + self.weights[1] * dfd_loss
-        )
+        loss = (self.weights[0] * vanilla_kd_loss + self.weights[1] * dfd_loss)
         # self.convertor_optimizer.zero_grad()
         self.optimizer.zero_grad()
-        self.scaler.scale(loss_1).backward()
+        self.scaler.scale(loss).backward()
         nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
@@ -392,7 +247,6 @@ class LearnDiversifyEnv(object):
         top1 /= torch.cuda.device_count()
         top5 /= torch.cuda.device_count()
 
-        loss = loss_1
         lr = (
             self.scheduler.get_last_lr()
             if hasattr(self.scheduler, "get_lr")
@@ -400,10 +254,11 @@ class LearnDiversifyEnv(object):
         )
         lr = lr[0]
         if self.gpu == 0:
-            self.log(self.teacher_model, loss.cpu(), top1.cpu(), top5.cpu(), lr)
+            self.log(self.teacher_model, (loss + ne_ce_loss).cpu(), top1.cpu(), top5.cpu(), lr)
         return (
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
+            ne_ce_loss,
             dfd_loss.cpu().item(),
         )
 
@@ -423,15 +278,14 @@ class LearnDiversifyEnv(object):
         """============================train=============================="""
         start_time = time.time()
         self.student_model.train()
-        self.p_logvar.train()
-        self.p_mu.train()
-        self.convertor.train()
+        self.convertor.SDA.train()
         if self.gpu == 0:
             self.log.train(len_dataset=len(self.dataloader))
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
                 vanilla_kd_loss,
+                ne_ce_loss,
                 dfd_loss,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
@@ -439,7 +293,12 @@ class LearnDiversifyEnv(object):
                     {
                         "top1": top1,
                         "vanilla_kd_loss": vanilla_kd_loss,
+                        "ne_ce_loss": ne_ce_loss,
                         "dfd_loss": dfd_loss,
+                        **{f"p_{i}": p for i, p in
+                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().tolist())},
+                        **{f"m_{i}": m for i, m in
+                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().tolist())},
                     },
                     step=self.accumuate_count,
                 )
@@ -463,9 +322,7 @@ class LearnDiversifyEnv(object):
         """============================val=============================="""
         start_time = time.time()
         self.student_model.eval()
-        self.p_logvar.eval()
-        self.p_mu.eval()
-        self.convertor.eval()
+        self.convertor.SDA.eval()
         if self.gpu == 0:
             self.log.eval(len_dataset=len(self.testloader))
         for batch_idx, (input, target) in enumerate(self.testloader):
@@ -503,8 +360,12 @@ class LearnDiversifyEnv(object):
         elif isinstance(self.scheduler, timm.scheduler.scheduler.Scheduler):
             self.scheduler.step(self.epoch)
 
+    def pretrain(self):
+        run_color(self.yaml)
+        run_stn(self.yaml)
 
     def training_in_all_epoch(self):
+
         for i in range(self.begin_epoch, self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
             ttop1, tloss = self.run_one_train_epoch()
@@ -537,8 +398,7 @@ class LearnDiversifyEnv(object):
                     "scaler": self.scaler.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "student_model": self.student_model.state_dict(),
-                    "p_mu": self.p_mu.state_dict(),
-                    "p_logvar": self.p_logvar.state_dict(),
+                    "convertor": self.convertor.SDA.state_dict(),
                     "dfd": self.dfd.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                 }
@@ -548,6 +408,7 @@ class LearnDiversifyEnv(object):
             self.log.flush()
             self.ff.close()
             self.wandb.finish()
+
 
 """
 for name,param in model.named_parameters():

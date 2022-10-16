@@ -17,7 +17,7 @@ from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import wandb
-from Env.Environment_Attack import *
+from Env.Environment_SDA import *
 
 sys.path.append(os.path.join(os.getcwd()))
 import datas
@@ -61,7 +61,9 @@ def set_random_seed(number=0):
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = True
     import random
+
     import numpy as np
+
     np.random.seed(number)
     random.seed(number)
 
@@ -131,7 +133,6 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
         num_worker=yaml_config["num_worker"],
         train_batch_size=yaml_config["train_batch_size"] // 2,
         test_batch_size=yaml_config["test_batch_size"] // 2,
-
     )
     criticion = getattr(losses, yaml_config["criticion"]["type"])(
         temperature=yaml_config["criticion"]["temperature"]
