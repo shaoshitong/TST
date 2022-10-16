@@ -102,7 +102,7 @@ class SDAGenerator:
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
         self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=self.lr, momentum=0.9)
         if yaml["SDA"]["finetune_teacher"]:
-            self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu),device_ids=[gpu])
+            self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu), device_ids=[gpu])
             self.optimizer.add_param_group({"params": self.afe.parameters()})
 
     def __call__(self, student, teacher, x, y, if_learning=True):
@@ -232,10 +232,15 @@ class LearnDiversifyEnv(object):
             )
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
+        b, c, h, w = data_aug.shape
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
             with torch.no_grad():
                 (teacher_tuple, teacher_logits) = self.teacher_model(data_aug, is_feat=True)
+                if self.yaml["SDA"]["finetune_teacher"]:
+                    for i in range(len(teacher_tuple)):
+                        teacher_tuple[i] = teacher_tuple[i][:b // 2]
+                    teacher_logits[:b // 2] = self.convertor.afe(teacher_tuple[:-1])
         # TODO: compute relative loss
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(
