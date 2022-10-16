@@ -20,13 +20,13 @@ from pretrain.CIFAR100_color import run_color
 from pretrain.CIFAR100_stn import run_stn
 
 
-def criticion(type):
-    def ne_ce_loss(student_out, teacher_out, label, alpha=1, beta=1):
+def criticion(type, alpha=1, beta=1):
+    def ne_ce_loss(student_out, teacher_out, label):
         t_loss = F.cross_entropy(teacher_out, label)
         s_loss = F.cross_entropy(student_out, label)
         return alpha * t_loss - beta * s_loss
 
-    def ne_confidence_ce_loss(student_out, teacher_out, label, alpha=1, beta=1):
+    def ne_confidence_ce_loss(student_out, teacher_out, label):
         mask = label.bool()
         weight = 1 - teacher_out.softmax(1)[mask]
         t_loss = F.cross_entropy(teacher_out, label, reduction="none")
@@ -62,7 +62,6 @@ class SDAGenerator:
 
     def step(self, student, teacher, x, y):
         if not self.yaml["only_stage_one"]:
-            self.SDA.requires_grad_(True)
             student.eval()
             student.requires_grad_(False)
             augment_x = x.clone()
@@ -75,7 +74,6 @@ class SDAGenerator:
             self.loss = loss.item()
             self.optimizer.step()
             # give back
-            self.SDA.requires_grad_(False)
             student.train()
             student.requires_grad_(True)
         else:

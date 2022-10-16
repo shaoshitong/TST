@@ -144,6 +144,7 @@ class Mulit_Augmentation(nn.Module):
         self.nolearning_model_list.append(_cutout)
 
     def _freeze_parameter(self):
+
         for parameter in self.learning_stn_model_list.parameters():
             parameter.requires_grad = False
         for parameter in self.learning_color_model_list.parameters():
@@ -171,7 +172,7 @@ class Mulit_Augmentation(nn.Module):
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
                 result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'{p_iter}')
+                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
             p_iter += 1
             m_iter += 1
 
@@ -181,7 +182,7 @@ class Mulit_Augmentation(nn.Module):
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
                 result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'{p_iter}')
+                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
             p_iter += 1
             m_iter += 1
 
@@ -190,7 +191,7 @@ class Mulit_Augmentation(nn.Module):
                 now_image = tran(image)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
                 result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'{p_iter}')
+                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
             p_iter += 1
 
         result = torch.stack(result).mean(0)
