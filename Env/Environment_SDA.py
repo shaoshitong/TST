@@ -40,8 +40,54 @@ def criticion(type, alpha=1, beta=1):
         return ne_confidence_ce_loss
 
 
+class conv_relu_bn(nn.Module):
+    def __init__(self, in_channel, out_channel, stride):
+        super(conv_relu_bn, self).__init__()
+        self.conv = nn.Conv2d(in_channel, out_channel, (stride, stride), (stride, stride), (0, 0), bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.bn = nn.BatchNorm2d(out_channel)
+
+    def forward(self, x):
+        x = self.bn(self.relu(self.conv(x)))
+        return x
+
+
+class AugmentationFeatureEncoder(nn.Module):
+    def __init__(self, yaml):
+        super(AugmentationFeatureEncoder, self).__init__()
+        self.yaml = yaml
+        self.channels = yaml["dfd"]["teacher_channels"]
+        self.shapes = yaml["dfd"]["feature_size"]
+        self.num_classes = yaml["num_classes"]
+        self.embedding_model_list = nn.ModuleList([])
+
+        l = len(self.channels)
+        for i in range(l - 1):
+            in_channel = self.channels[i]
+            out_channel = self.channels[i + 1]
+            in_shape = self.shapes[i]
+            out_shape = self.shapes[i + 1]
+            stride = int(in_shape // out_shape)
+            layer = conv_relu_bn(in_channel, out_channel, stride)
+            self.embedding_model_list.append(layer)
+
+        self.classifier = nn.Sequential(
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(self.channels[-1], self.num_classes)
+        )
+
+    def forward(self, feature_tuple):
+        out_feature = self.embedding_model_list[0](feature_tuple[0])
+        out_feature = feature_tuple[1] + out_feature
+        out_feature = self.embedding_model_list[1](out_feature)
+        out_feature = feature_tuple[2] + out_feature
+        return self.classifier(out_feature)
+
+
 class SDAGenerator:
-    def __init__(self, yaml, gpu):
+    def __init__(self, yaml, gpu, teacher):
         self.lr = yaml["SDA"]["lr"]
         self.gpu = gpu
         self.SDA = DDP(
@@ -55,20 +101,28 @@ class SDAGenerator:
         self.yaml = yaml
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
         self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=self.lr, momentum=0.9)
+        if yaml["SDA"]["finetune_teacher"]:
+            self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu),device_ids=[gpu])
+            self.optimizer.add_param_group({"params": self.afe.parameters()})
 
-    def __call__(self, student, teacher, x, y):
-        augment_x, augment_y = self.step(student, teacher, x, y)
+    def __call__(self, student, teacher, x, y, if_learning=True):
+        augment_x, augment_y = self.step(student, teacher, x, y, if_learning)
         return augment_x, augment_y, self.loss
 
-    def step(self, student, teacher, x, y):
-        if not self.yaml["only_stage_one"]:
+    def step(self, student, teacher, x, y, if_learning):
+        if not self.yaml["only_stage_one"] and if_learning:
             student.eval()
             student.requires_grad_(False)
             augment_x = x.clone()
             augment_y = y.clone()
             augment_x.requires_grad = True
             augment_x = self.SDA(augment_x)
-            loss = self.criticion(student(augment_x), teacher(augment_x), augment_y)
+            student_out = student(augment_x)
+            teacher_tuple, teacher_out = teacher(augment_x, is_feat=True)
+            teacher_tuple = teacher_tuple[:-1]
+            if self.yaml["SDA"]["finetune_teacher"]:
+                teacher_out = self.afe(teacher_tuple)
+            loss = self.criticion(student_out, teacher_out, augment_y)
             self.optimizer.zero_grad()
             loss.backward()
             self.loss = loss.item()
@@ -78,6 +132,7 @@ class SDAGenerator:
             student.requires_grad_(True)
         else:
             self.loss = 0.0
+
         with torch.no_grad():
             augment_x = self.SDA(x.clone())
             augment_y = y.clone()
@@ -131,34 +186,15 @@ class LearnDiversifyEnv(object):
         # TODO: Learning to diversify
         self.pretrain()
         print("pretrain finished successfully!")
-        self.convertor = SDAGenerator(yaml=yaml, gpu=gpu)
+        for name, param in self.teacher_model.named_parameters():
+            param.requires_grad = False
+
+        self.convertor = SDAGenerator(yaml=yaml, gpu=gpu, teacher=self.teacher_model)
         # TODO: It is important to remember to add the last parameter in the optimizer
         self.weights = yaml["weights"]
-
-        # TODO: DFD
-        # self.dfd = DDP(DynamicFeatureDistillation(
-        #     features_size=yaml["dfd"]["feature_size"],
-        #     teacher_channels=yaml["dfd"]["teacher_channels"],
-        #     student_channels=yaml["dfd"]["student_channels"],
-        #     patch_size=yaml["dfd"]["patch_size"],
-        #     distill_mode=yaml["dfd"]["distill_mode"],
-        #     swinblocknumber=yaml["dfd"]["swinblocknumber"],
-        #     mode=yaml['dfd']['mode'],
-        # ).cuda(gpu),device_ids=[gpu])
-
-        self.dfd = DDP(
-            SMSEKD(
-                in_channels=yaml["dfd"]["student_channels"],
-                out_channels=yaml["dfd"]["teacher_channels"],
-                shapes=yaml["dfd"]["feature_size"],
-                out_shapes=yaml["dfd"]["feature_size"],
-                num_classes=yaml["num_classes"],
-            ).cuda(gpu),
-            device_ids=[gpu],
-        )
-
-        self.optimizer.add_param_group({"params": self.dfd.parameters()})
         self.only_satge_one = self.yaml["only_stage_one"]
+        self.convertor_training_epoch = self.yaml["SDA"]["convertor_training_epoch"]
+        self.convertor_epoch_number = self.yaml["SDA"]["convertor_epoch_number"]
 
         if yaml["resume"] != "none":
             dict = torch.load(yaml["resume"])
@@ -185,35 +221,22 @@ class LearnDiversifyEnv(object):
         return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
-
-        # TODO: turn target (N,1) -> (N,C)
         input = input.float().cuda(self.gpu)
         target = target.cuda(self.gpu)
         target = target.view(-1)
         target = F.one_hot(target, num_classes=self.num_classes).float()
-
         # TODO: Learning to diversify
         with torch.cuda.amp.autocast(enabled=True):
             inputs_max, target_temp, ne_ce_loss = self.convertor(
-                self.student_model, self.teacher_model, input, target
+                self.student_model, self.teacher_model, input, target, False
             )
-
-        if batch_idx == 0:
-            from utils.save_Image import change_tensor_to_image
-
-            change_tensor_to_image(inputs_max[0], "image", f"cifar100_{self.epoch}")
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
-
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
             with torch.no_grad():
                 (teacher_tuple, teacher_logits) = self.teacher_model(data_aug, is_feat=True)
-            student_tuple = student_tuple[:-1]
-            teacher_tuple = teacher_tuple[:-1]
-
         # TODO: compute relative loss
-
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(
             student_logits.float(),
@@ -221,30 +244,18 @@ class LearnDiversifyEnv(object):
             labels,
             self.yaml["criticion"]["temperature"],
         )
-
-        # TODO: 2 DFD Loss
-        if self.weights[1] == 0:
-            dfd_loss = torch.Tensor([0.0]).cuda(self.gpu)
-        else:
-            with torch.cuda.amp.autocast(enabled=True):
-                dfd_loss = self.dfd(student_tuple, teacher_tuple, labels, only_alignment=True)
-
-        # TODO: 3. Combine all Loss in stage one
-        loss = (self.weights[0] * vanilla_kd_loss + self.weights[1] * dfd_loss)
-        # self.convertor_optimizer.zero_grad()
+        # TODO: 2. Combine all Loss in stage one
+        loss = (self.weights[0] * vanilla_kd_loss)
         self.optimizer.zero_grad()
         self.scaler.scale(loss).backward()
-        nn.utils.clip_grad_norm_(self.dfd.parameters(), max_norm=2, norm_type=2)
         self.scaler.step(self.optimizer)
         self.scaler.update()
-
         # TODO: Compute top1 and top5
         top1, top5 = correct_num(student_logits[: input.shape[0]], target, topk=(1, 5))
         dist.all_reduce(top1, op=dist.ReduceOp.SUM)
         dist.all_reduce(top5, op=dist.ReduceOp.SUM)
         top1 /= torch.cuda.device_count()
         top5 /= torch.cuda.device_count()
-
         lr = (
             self.scheduler.get_last_lr()
             if hasattr(self.scheduler, "get_lr")
@@ -257,7 +268,23 @@ class LearnDiversifyEnv(object):
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
             ne_ce_loss,
-            dfd_loss.cpu().item(),
+        )
+
+    def run_one_convertor_batch_size(self, batch_idx, indexs, input, target):
+        input = input.float().cuda(self.gpu)
+        target = target.cuda(self.gpu)
+        target = target.view(-1)
+        target = F.one_hot(target, num_classes=self.num_classes).float()
+        # TODO: Learning to diversify
+        with torch.cuda.amp.autocast(enabled=True):
+            inputs_max, target_temp, ne_ce_loss = self.convertor(
+                self.student_model, self.teacher_model, input, target
+            )
+        if batch_idx == 0:
+            from utils.save_Image import change_tensor_to_image
+            change_tensor_to_image(inputs_max[0], "image", f"cifar100_{self.epoch}")
+        return (
+            ne_ce_loss,
         )
 
     @torch.no_grad()
@@ -272,6 +299,34 @@ class LearnDiversifyEnv(object):
         top1 = dist.all_reduce(top1, op=dist.ReduceOp.SUM) / torch.cuda.device_count()
         return top1.cpu().item(), loss.cpu().item()
 
+    def run_one_convertor_epoch(self):
+        self.student_model.train()
+        self.convertor.SDA.train()
+        total_ne_ce_loss = 0
+        for batch_idx, (index, input, target) in enumerate(self.dataloader):
+            (
+                ne_ce_loss,
+            ) = self.run_one_convertor_batch_size(batch_idx, index, input, target)
+            if self.gpu == 0:
+                self.wandb.log(
+                    {
+                        "ne_ce_loss": ne_ce_loss,
+                        **{f"p_{i}": p for i, p in
+                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
+                        **{f"m_{i}": m for i, m in
+                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().sigmoid().tolist())},
+                    },
+                    step=self.accumuate_count,
+                )
+            total_ne_ce_loss = total_ne_ce_loss + ne_ce_loss
+            self.accumuate_count += 1
+        total_ne_ce_loss = total_ne_ce_loss / len(self.dataloader)
+        if self.gpu == 0:
+            self.ff.write(
+                f"epoch:{self.epoch}, ne_ce_loss:{total_ne_ce_loss}\n"
+            )
+            print("ne_ce_loss is:", total_ne_ce_loss)
+
     def run_one_train_epoch(self):
         """============================train=============================="""
         start_time = time.time()
@@ -279,12 +334,17 @@ class LearnDiversifyEnv(object):
         self.convertor.SDA.train()
         if self.gpu == 0:
             self.log.train(len_dataset=len(self.dataloader))
+
+        # TODO: DIVERSIFY LEARNING
+        if self.epoch in self.convertor_training_epoch:
+            for i in range(self.convertor_epoch_number):
+                self.run_one_convertor_epoch()
+
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
                 vanilla_kd_loss,
                 ne_ce_loss,
-                dfd_loss,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
                 self.wandb.log(
@@ -292,7 +352,6 @@ class LearnDiversifyEnv(object):
                         "top1": top1,
                         "vanilla_kd_loss": vanilla_kd_loss,
                         "ne_ce_loss": ne_ce_loss,
-                        "dfd_loss": dfd_loss,
                         **{f"p_{i}": p for i, p in
                            enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
                         **{f"m_{i}": m for i, m in
@@ -397,7 +456,6 @@ class LearnDiversifyEnv(object):
                     "optimizer": self.optimizer.state_dict(),
                     "student_model": self.student_model.state_dict(),
                     "convertor": self.convertor.SDA.state_dict(),
-                    "dfd": self.dfd.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                 }
                 torch.save(dict, model_path)
