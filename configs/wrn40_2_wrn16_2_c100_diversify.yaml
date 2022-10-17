@@ -36,7 +36,7 @@ log_each:
 
 SDA:
   lr:
-    1e-4
+    1e-3
   pretrain_path:
     ./checkpoints/Augmentation/
   dataset_type:
@@ -46,9 +46,9 @@ SDA:
   criticion_type:
     NO_CONFIDENCE
   convertor_training_epoch:
-    - 0
-    - 50
-    - 100
+    - 1
+    - 51
+    - 101
     - 151
   convertor_epoch_number:
     14

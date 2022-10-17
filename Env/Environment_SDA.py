@@ -101,7 +101,7 @@ class SDAGenerator:
         )
         self.yaml = yaml
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
-        self.optimizer = torch.optim.AdamW(self.SDA.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=0.01, momentum=0.9)
         if yaml["SDA"]["finetune_teacher"]:
             self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu), device_ids=[gpu])
             self.optimizer_afe = torch.optim.AdamW(self.afe.parameters(), lr=self.lr, weight_decay=1e-4)
@@ -260,8 +260,8 @@ class LearnDiversifyEnv(object):
             if targets != None
             else 0.0
         )
-        augment_soft_loss = DIST(beta=1,gamma=1)(student_output[:b//2],teacher_output[:b//2])
-        return original_hard_loss/2 + augment_soft_loss/2 + original_soft_loss/2
+        augment_soft_loss = DIST(beta=1, gamma=1)(student_output[:b // 2], teacher_output[:b // 2])
+        return original_hard_loss / 2 + augment_soft_loss / 2 + original_soft_loss / 2
 
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
         input = input.float().cuda(self.gpu)
@@ -287,7 +287,7 @@ class LearnDiversifyEnv(object):
                     # TODO: compute relative loss
         # TODO: 1, vanilla KD Loss
         if self.yaml["SDA"]["finetune_teacher"]:
-            vanilla_kd_loss = self.DISTLoss(
+            vanilla_kd_loss = self.KDLoss(
                 student_logits.float(),
                 teacher_logits.float(),
                 labels,
@@ -401,7 +401,6 @@ class LearnDiversifyEnv(object):
             else:
                 for i in range(int(self.convertor_epoch_number)):
                     self.run_one_convertor_epoch(False)
-
 
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
