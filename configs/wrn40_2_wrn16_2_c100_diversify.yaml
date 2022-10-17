@@ -20,7 +20,7 @@ weights:
 augnettype:
   SmallImageAugNet
 data_path:
-  /data/data/cifar100
+  /home/sst/dataset/c100/
 num_worker:
   4
 train_batch_size:
@@ -46,14 +46,12 @@ SDA:
   criticion_type:
     NO_CONFIDENCE
   convertor_training_epoch:
-    - 1
-    - 51
-    - 101
-    - 151
+    - 30
+    - 90
   convertor_epoch_number:
-    14
+    20
   finetune_teacher:
-    True
+    False
   
 optimizer:
   lr:

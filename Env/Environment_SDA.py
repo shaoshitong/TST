@@ -54,6 +54,33 @@ class conv_relu_bn(nn.Module):
         x = self.bn(self.relu(self.conv(x)))
         return x
 
+import torch
+
+
+class ALRS():
+    '''
+    proposer: Huanran Chen
+    theory: landscape
+    Bootstrap Generalization Ability from Loss Landscape Perspective
+    '''
+
+    def __init__(self, optimizer, loss_threshold=0.02, loss_ratio_threshold=0.02, decay_rate=0.9):
+        self.optimizer = optimizer
+        self.loss_threshold = loss_threshold
+        self.decay_rate = decay_rate
+        self.loss_ratio_threshold = loss_ratio_threshold
+
+        self.last_loss = 999
+
+    def step(self, loss):
+        delta = self.last_loss - loss
+        if delta < self.loss_threshold and delta / self.last_loss < self.loss_ratio_threshold:
+            for group in self.optimizer.param_groups:
+                group['lr'] *= self.decay_rate
+                now_lr = group['lr']
+                print(f'now lr = {now_lr}')
+
+        self.last_loss = loss
 
 class AugmentationFeatureEncoder(nn.Module):
     def __init__(self, yaml):
@@ -106,10 +133,16 @@ class SDAGenerator:
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
         self.optimizer = torch.optim.SGD(self.SDA.parameters(),
                                          lr=0.01 if self.yaml['SDA']['dataset_type'] == "CIFAR" else 0.03, momentum=0.9)
+        self.scheduler = ALRS(self.optimizer)
         if yaml["SDA"]["finetune_teacher"]:
             self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu), device_ids=[gpu])
             self.optimizer_afe = torch.optim.AdamW(self.afe.parameters(), lr=self.lr, weight_decay=1e-4)
 
+    def reset(self):
+        del self.optimizer
+        del self.scheduler
+        self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=0.01, momentum=0.9)
+        self.scheduler = ALRS(self.optimizer)
     def __call__(self, student, teacher, x, y, if_learning=True, if_afe=False):
         if if_afe:
             self.step_afe(student, teacher, x, y, if_learning)
@@ -381,6 +414,7 @@ class LearnDiversifyEnv(object):
             total_ne_ce_loss = total_ne_ce_loss + ne_ce_loss
             self.accumuate_count += 1
         total_ne_ce_loss = total_ne_ce_loss / len(self.dataloader)
+        self.convertor.scheduler.step(total_ne_ce_loss)
         if self.gpu == 0:
             self.ff.write(
                 f"epoch:{self.epoch}, ne_ce_loss:{total_ne_ce_loss}\n"
@@ -397,6 +431,7 @@ class LearnDiversifyEnv(object):
 
         # TODO: DIVERSIFY LEARNING
         if self.epoch in self.convertor_training_epoch:
+            self.convertor.reset()
             if self.yaml["SDA"]["finetune_teacher"]:
                 for i in range(int(self.convertor_epoch_number / 2)):
                     self.run_one_convertor_epoch(True)
