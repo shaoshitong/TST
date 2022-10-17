@@ -16,6 +16,7 @@ from datas.Augmention import Mulit_Augmentation
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from losses.SimpleMseKD import SMSEKD
+from losses.DISTKD import DIST
 from pretrain.CIFAR100_color import run_color
 from pretrain.CIFAR100_stn import run_stn
 
@@ -247,6 +248,21 @@ class LearnDiversifyEnv(object):
         )
         return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
+    def DISTLoss(self, student_output, teacher_output, targets=None, temperature=4):
+        b = student_output.shape[0]
+        original_soft_loss = F.kl_div(
+            torch.log_softmax(student_output[b // 2:] / temperature, dim=1),
+            torch.softmax(teacher_output[b // 2:] / temperature, dim=1),
+            reduction="batchmean",
+        ) * (temperature ** 2)
+        original_hard_loss = (
+            F.kl_div(torch.log_softmax(student_output[b // 2:], dim=-1), targets[b // 2:], reduction="batchmean")
+            if targets != None
+            else 0.0
+        )
+        augment_soft_loss = DIST(beta=1,gamma=1)(student_output[:b//2],teacher_output[:b//2])
+        return original_hard_loss/2 + augment_soft_loss/2 + original_soft_loss/2
+
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
         input = input.float().cuda(self.gpu)
         target = target.cuda(self.gpu)
@@ -268,14 +284,22 @@ class LearnDiversifyEnv(object):
                     for i in range(len(teacher_tuple)):
                         teacher_tuple[i] = teacher_tuple[i][:b // 2]
                     teacher_logits[:b // 2] = self.convertor.afe(teacher_tuple[:-1])
-        # TODO: compute relative loss
+                    # TODO: compute relative loss
         # TODO: 1, vanilla KD Loss
-        vanilla_kd_loss = self.KDLoss(
-            student_logits.float(),
-            teacher_logits.float(),
-            labels,
-            self.yaml["criticion"]["temperature"],
-        )
+        if self.yaml["SDA"]["finetune_teacher"]:
+            vanilla_kd_loss = self.DISTLoss(
+                student_logits.float(),
+                teacher_logits.float(),
+                labels,
+                self.yaml["criticion"]["temperature"],
+            )
+        else:
+            vanilla_kd_loss = self.KDLoss(
+                student_logits.float(),
+                teacher_logits.float(),
+                labels,
+                self.yaml["criticion"]["temperature"],
+            )
         # TODO: 2. Combine all Loss in stage one
         loss = (self.weights[0] * vanilla_kd_loss)
         self.optimizer.zero_grad()
@@ -369,10 +393,15 @@ class LearnDiversifyEnv(object):
 
         # TODO: DIVERSIFY LEARNING
         if self.epoch in self.convertor_training_epoch:
-            for i in range(int(self.convertor_epoch_number/2)):
-                self.run_one_convertor_epoch(True)
-            for i in range(int(self.convertor_epoch_number/2)):
-                self.run_one_convertor_epoch(False)
+            if self.yaml["SDA"]["finetune_teacher"]:
+                for i in range(int(self.convertor_epoch_number / 2)):
+                    self.run_one_convertor_epoch(True)
+                for i in range(int(self.convertor_epoch_number / 2)):
+                    self.run_one_convertor_epoch(False)
+            else:
+                for i in range(int(self.convertor_epoch_number)):
+                    self.run_one_convertor_epoch(False)
+
 
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (

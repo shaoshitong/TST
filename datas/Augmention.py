@@ -171,8 +171,7 @@ class Mulit_Augmentation(nn.Module):
                 _m = m[p_iter].view(-1, 1).expand(image.shape[0], -1)
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
-                result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
+                result.append(now_image - image)
             p_iter += 1
             m_iter += 1
 
@@ -181,8 +180,7 @@ class Mulit_Augmentation(nn.Module):
                 _m = m[p_iter].view(-1, 1).expand(image.shape[0], -1)
                 now_image = tran(image, _m)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
-                result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
+                result.append(now_image - image)
             p_iter += 1
             m_iter += 1
 
@@ -190,9 +188,10 @@ class Mulit_Augmentation(nn.Module):
             if p_iter in index:
                 now_image = tran(image)
                 now_image = p[p_iter] * now_image + (1 - p[p_iter]) * image
-                result.append(now_image)
-                change_tensor_to_image(now_image[0],'image',f'1_{p_iter}')
+                result.append(now_image - image)
             p_iter += 1
 
-        result = torch.stack(result).mean(0)
+        result = torch.stack(result).sum(0) + image
+        change_tensor_to_image(result[0], 'image', f'1_{p_iter}')
+
         return result

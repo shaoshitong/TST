@@ -36,7 +36,7 @@ log_each:
 
 SDA:
   lr:
-    0.01
+    1e-4
   pretrain_path:
     ./checkpoints/Augmentation/
   dataset_type:
