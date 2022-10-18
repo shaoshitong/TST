@@ -519,7 +519,7 @@ class LearnDiversifyEnv(object):
             self.scheduler.step(self.epoch)
 
     def pretrain(self):
-        if self.yaml["SDA"]["dataset_type"] == "CIFAR100":
+        if self.yaml["SDA"]["dataset_type"] == "CIFAR":
             run_cifar100_stn(self.yaml)
             run_cifar100_color(self.yaml)
         else:

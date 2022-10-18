@@ -20,7 +20,7 @@ weights:
 augnettype:
   SmallImageAugNet
 data_path:
-  /home/sst/dataset/c100/
+  /data/data/cifar100/
 num_worker:
   4
 train_batch_size:
