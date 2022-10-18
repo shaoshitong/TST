@@ -141,21 +141,25 @@ class FreezeSTN(nn.Module):
             magnitude = magnitude.view(1, -1).expand(x.shape[0], -1)
         H = self.H[None, ...].expand(x.shape[0], -1)
         H = torch.cat([H, magnitude], 1)
-        H = H + torch.randn_like(H).to(H.device) / 100
+        if self.fc.requires_grad == False:
+            H = H + torch.randn_like(H).to(H.device) / 100
         H = self.fc(H).view(-1, 2, 3)
-        H = self.sample(H)
+        if self.fc.requires_grad == False:
+            H = self.sample(H)
         grid = torch.nn.functional.affine_grid(H, x.size())
         x = torch.nn.functional.grid_sample(x, grid)
         return x
 
 
 class Alignment:
-    def __init__(self, policy_name, img_size, save_path, STN, dataset_type):
+    def __init__(self, policy_name, img_size, save_path, STN, dataset_type,epoch=10):
         self.policy_name = policy_name
         self.img_size = img_size
         self.stn = STN().cuda()
-        self.epoch = 10
+        self.epoch = epoch
         self.optimizer = torch.optim.AdamW(self.stn.parameters(), 1e-3)
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer,gamma=0.999)
+
         self.criticion = nn.MSELoss()
         self.save_path = save_path
 
@@ -205,14 +209,13 @@ class Alignment:
                 if signed and sign:
                     magnitude_new *= -1.0
                     magnitude *= -1.0
-                # _image = image.mul(
-                #     torch.Tensor(self.std)[None, :, None, None].cuda()
-                # ).add(torch.Tensor(self.mean)[None, :, None, None].cuda())
-                # _image = _image * 255
-                # _image = torch.floor(_image + 0.5)
-                # torch.clip_(_image, 0, 255)
-                # _image = _image.type(torch.uint8)
-                _image = image
+                _image = image.mul(
+                    torch.Tensor(self.std)[None, :, None, None].cuda()
+                ).add(torch.Tensor(self.mean)[None, :, None, None].cuda())
+                _image = _image * 255
+                _image = torch.floor(_image + 0.5)
+                torch.clip_(_image, 0, 255)
+                _image = _image.type(torch.uint8)
                 freeze_image = _apply_op(
                     _image,
                     self.policy_name,
@@ -220,12 +223,13 @@ class Alignment:
                     interpolation=InterpolationMode.NEAREST,
                     fill=None,
                 )
-                # freeze_image = self.tran(freeze_image / 255).float()
+                freeze_image = self.tran(freeze_image / 255).float()
                 stn_image = self.stn(image, magnitude)
                 loss = self.criticion(stn_image, freeze_image)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+                self.scheduler.step()
                 print(f"epoch = {i}, iter = {j}, loss = {round(loss.item(), 3)}")
             torch.save(self.stn.state_dict(), self.save_path)
 

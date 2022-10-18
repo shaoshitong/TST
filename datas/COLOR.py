@@ -184,7 +184,8 @@ class ColorAugmentation(nn.Module):
         scale = self.scale * (scale - 0.5) + 1
         shift = shift - 0.5
         # random apply
-        scale, shift = self.sampling(scale, shift)
+        if self.conv.requires_grad == False:
+            scale, shift = self.sampling(scale, shift)
         return self.conv(self.transform(x, scale, shift))
 
     def transform(self, x, scale, shift):
@@ -201,7 +202,7 @@ class ColorAugmentation(nn.Module):
 
 
 class Alignment:
-    def __init__(self, policy_name, img_size, save_path, COLOR, dataset_type):
+    def __init__(self, policy_name, img_size, save_path, COLOR, dataset_type,epoch=20):
         self.policy_name = policy_name
         self.img_size = img_size
         if dataset_type == "CIFAR":
@@ -211,8 +212,9 @@ class Alignment:
             self.mean = [0.485, 0.456, 0.406]
             self.std = [0.229, 0.224, 0.225]
         self.color = COLOR(dataset_type=dataset_type).cuda()
-        self.epoch = 20
+        self.epoch = epoch
         self.optimizer = torch.optim.AdamW(self.color.parameters(), 1e-3, weight_decay=0)
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer,gamma=0.999)
         self.criticion = nn.MSELoss()
         self.save_path = save_path
         self.tran = transforms.Compose([transforms.Normalize(self.mean, std=self.std)])
@@ -279,6 +281,7 @@ class Alignment:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+                self.scheduler.step()
                 print(f"epoch = {i}, iter = {j}, loss = {round(loss.item(), 3)}")
             torch.save(self.color.state_dict(), self.save_path)
 

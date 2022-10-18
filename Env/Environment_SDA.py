@@ -17,8 +17,10 @@ from helpers.correct_num import correct_num
 from helpers.log import Log
 from losses.SimpleMseKD import SMSEKD
 from losses.DISTKD import DIST
-from pretrain.CIFAR100_color import run_color
-from pretrain.CIFAR100_stn import run_stn
+from pretrain.CIFAR100_color import run_cifar100_color
+from pretrain.CIFAR100_stn import run_cifar100_stn
+from pretrain.ImageNet_color import run_imagenet_color
+from pretrain.ImageNet_stn import run_imagenet_stn
 
 
 def criticion(type, alpha=1, beta=1):
@@ -98,10 +100,12 @@ class SDAGenerator:
                 solve_number=yaml["SDA"]["solve_number"],
             ).cuda(gpu),
             device_ids=[gpu],
+            find_unused_parameters= True if yaml["SDA"]["solve_number"] <=2 else False
         )
         self.yaml = yaml
         self.criticion = criticion(yaml["SDA"]["criticion_type"])
-        self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=0.01, momentum=0.9)
+        self.optimizer = torch.optim.SGD(self.SDA.parameters(),
+                                         lr=0.01 if self.yaml['SDA']['dataset_type'] == "CIFAR" else 0.03, momentum=0.9)
         if yaml["SDA"]["finetune_teacher"]:
             self.afe = DDP(AugmentationFeatureEncoder(self.yaml).cuda(gpu), device_ids=[gpu])
             self.optimizer_afe = torch.optim.AdamW(self.afe.parameters(), lr=self.lr, weight_decay=1e-4)
@@ -480,8 +484,13 @@ class LearnDiversifyEnv(object):
             self.scheduler.step(self.epoch)
 
     def pretrain(self):
-        run_color(self.yaml)
-        run_stn(self.yaml)
+        if self.yaml["SDA"]["dataset_type"] == "CIFAR100":
+            run_cifar100_stn(self.yaml)
+            run_cifar100_color(self.yaml)
+        else:
+            run_imagenet_stn(self.yaml)
+            run_imagenet_color(self.yaml)
+
 
     def training_in_all_epoch(self):
 
