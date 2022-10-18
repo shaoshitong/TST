@@ -135,16 +135,16 @@ class FreezeSTN(nn.Module):
         prob = relaxed_bernoulli(logits, temp, device=logits.device)
         return (1 - prob) * self.i_matrix + prob * A
 
-    def forward(self, x, magnitude):
+    def forward(self, x, magnitude, rg=True):
         if isinstance(magnitude, (float, int)):
             magnitude = torch.Tensor([magnitude]).to(x.device)
             magnitude = magnitude.view(1, -1).expand(x.shape[0], -1)
         H = self.H[None, ...].expand(x.shape[0], -1)
         H = torch.cat([H, magnitude], 1)
-        if self.fc.requires_grad == False:
+        if rg == True:
             H = H + torch.randn_like(H).to(H.device) / 100
         H = self.fc(H).view(-1, 2, 3)
-        if self.fc.requires_grad == False:
+        if rg == True:
             H = self.sample(H)
         grid = torch.nn.functional.affine_grid(H, x.size())
         x = torch.nn.functional.grid_sample(x, grid)
@@ -224,7 +224,7 @@ class Alignment:
                     fill=None,
                 )
                 freeze_image = self.tran(freeze_image / 255).float()
-                stn_image = self.stn(image, magnitude)
+                stn_image = self.stn(image, magnitude,False)
                 loss = self.criticion(stn_image, freeze_image)
                 self.optimizer.zero_grad()
                 loss.backward()

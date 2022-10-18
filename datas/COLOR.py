@@ -165,7 +165,7 @@ class ColorAugmentation(nn.Module):
             shift = prob * shift  # omit "+ (1 - prob) * 0"
         return scale, shift
 
-    def forward(self, x, magnitude):
+    def forward(self, x, magnitude, re=True):
         noise = self.feature + torch.randn_like(self.feature).to(self.feature.data.device) / 100
         if isinstance(magnitude, (float, int)):
             magnitude = torch.Tensor([magnitude]).to(x.device)
@@ -184,7 +184,7 @@ class ColorAugmentation(nn.Module):
         scale = self.scale * (scale - 0.5) + 1
         shift = shift - 0.5
         # random apply
-        if self.conv.requires_grad == False:
+        if re == True:
             scale, shift = self.sampling(scale, shift)
         return self.conv(self.transform(x, scale, shift))
 
@@ -276,7 +276,7 @@ class Alignment:
                 magnitude = (
                     torch.Tensor([magnitude]).to(image.device)[None, ...].expand(image.shape[0], -1)
                 )
-                stn_image = self.color(image, magnitude)
+                stn_image = self.color(image, magnitude,False)
                 loss = self.criticion(stn_image, freeze_image)
                 self.optimizer.zero_grad()
                 loss.backward()
