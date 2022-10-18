@@ -16,7 +16,7 @@ def run_imagenet_stn(yaml):
         ):
             system = Alignment(
                 Stn_Translate_List[index],
-                [32, 32] if yaml["SDA"]["dataset_type"] == "CIFAR" else [224, 224],
+                [32, 32] if yaml["SDA"]["dataset_type"] == "CIFAR" else [56, 56],
                 os.path.join(yaml["SDA"]["pretrain_path"], f"{Stn_Translate_List[index]}.pth"),
                 FreezeSTN,
                 dataset_type=yaml["SDA"]["dataset_type"],
@@ -28,7 +28,7 @@ def run_imagenet_stn(yaml):
 
                 transform=transforms.Compose(
                     [
-                        transforms.RandomResizedCrop(224),
+                        transforms.RandomResizedCrop(56),
                         transforms.RandomHorizontalFlip(),
                         transforms.ToTensor(),
                         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
