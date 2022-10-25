@@ -109,7 +109,7 @@ def KDLoss(student_output, teacher_output, targets=None, temperature=4):
         reduction="batchmean",
     )
     hard_loss = (
-        criterion(student_output,targets)
+        criterion(student_output, targets)
         if targets != None
         else 0.0
     )
@@ -133,13 +133,14 @@ def main(config):
     model_without_ddp = model
 
     # TODO: USE FOR SDAKD
-    cwd =os.getcwd()
+    cwd = os.getcwd()
     sda_yaml = omegaconf.OmegaConf.load("../SDAKD_FOR_BASELINE/configs/swin_large_swin_tiny_imagenet_diversify.yaml")
-    sda_yaml["SDA"]["pretrain_path"] = os.path.join(cwd,"../SDAKD_FOR_BASELINE/checkpoints/Augmentation/")
-    sda_yaml["local_ckpt_path"] = os.path.join(cwd,"../SDAKD_FOR_BASELINE/checkpoints/teacher2/")
+    sda_yaml["SDA"]["pretrain_path"] = os.path.join(cwd, "../SDAKD_FOR_BASELINE/checkpoints/Augmentation/")
+    sda_yaml["local_ckpt_path"] = os.path.join(cwd, "../SDAKD_FOR_BASELINE/checkpoints/teacher2/")
     sda = SDAGenerator(sda_yaml, gpu=config.LOCAL_RANK)
     teacher_model = swin_transformer_large(num_classes=config.MODEL.NUM_CLASSES)
-    teacher_model_state_dict = torch.load(os.path.join(sda_yaml["local_ckpt_path"],sda_yaml["tcheckpoint"]),map_location="cpu")
+    teacher_model_state_dict = torch.load(os.path.join(sda_yaml["local_ckpt_path"], sda_yaml["tcheckpoint"]),
+                                          map_location="cpu")
     teacher_model.load_state_dict(teacher_model_state_dict["model"])
     teacher_model = symbolic_trace(teacher_model, concrete_args={"is_feat": True})
     teacher_model = torch.nn.DataParallel(
@@ -196,7 +197,7 @@ def main(config):
             sda.quick_multi_epoch(dataloader=data_loader_train, student_model=model, teacher_model=teacher_model,
                                   epoch_number=sda_yaml["SDA"]["convertor_epoch_number"], mixup_fn=mixup_fn)
 
-        train_one_epoch(config, model, teacher_model, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler,
+        train_one_epoch(config, model, teacher_model, sda, data_loader_train, optimizer, epoch, mixup_fn, lr_scheduler,
                         loss_scaler)
         if dist.get_rank() == 0 and (epoch % config.SAVE_FREQ == 0 or epoch == (config.TRAIN.EPOCHS - 1)):
             save_checkpoint(config, epoch, model_without_ddp, max_accuracy, optimizer, lr_scheduler, loss_scaler,
@@ -212,7 +213,8 @@ def main(config):
     logger.info('Training time {}'.format(total_time_str))
 
 
-def train_one_epoch(config, model, teacher_model, data_loader, optimizer, epoch, mixup_fn, lr_scheduler, loss_scaler):
+def train_one_epoch(config, model, teacher_model, sda, data_loader, optimizer, epoch, mixup_fn, lr_scheduler,
+                    loss_scaler):
     model.train()
     optimizer.zero_grad()
 
@@ -227,7 +229,9 @@ def train_one_epoch(config, model, teacher_model, data_loader, optimizer, epoch,
     for idx, (samples, targets) in enumerate(data_loader):
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
-
+        samples_aug, targets_aug = sda(model, teacher_model, samples, targets, False, False)
+        samples = torch.cat([samples,samples_aug])
+        targets = torch.cat([targets,targets_aug])
         if mixup_fn is not None:
             samples, targets = mixup_fn(samples, targets)
 
@@ -365,7 +369,7 @@ if __name__ == '__main__':
     np.random.seed(seed)
     random.seed(seed)
     cudnn.benchmark = True
-
+    config.DATA.BATCH_SIZE = int(config.DATA.BATCH_SIZE / 2)
     # linear scale the learning rate according to total batch size, may not be optimal
     linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
     linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
