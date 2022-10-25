@@ -1,0 +1,129 @@
+
+data:
+  Original_DataLoader_ImageNet
+tarch:
+  resnet50_imagenet
+arch:
+  mobilenetv1_imagenet
+loss:
+  KDloss
+tcheckpoint:
+  resnet50_imagenet.pth
+checkpoint:
+
+accumulate_step:
+  4
+online:
+  False
+SDA:
+  lr:
+    0.02
+  pretrain_path:
+    ./checkpoints/Augmentation/
+  dataset_type:
+    IMAGENET
+  solve_number:
+    4
+  criticion_type:
+    NO_CONFIDENCE
+  convertor_training_epoch:
+    - 10
+    - 25
+  convertor_epoch_number:
+    5
+  finetune_teacher:
+    False
+
+img_size:
+  224
+weights:
+  - 1
+  - 0
+augnettype:
+  SmallImageAugNet
+data_path:
+  /home/Bigdata/ilsvrc2012
+val_ratio:
+  0.05
+num_worker:
+  4
+train_batch_size:
+  512
+test_batch_size:
+  2048
+model_save_path:
+  ./checkpoints/SAC/
+log_each:
+  100
+optimizer:
+  lr:
+    0.2
+  type:
+    SGD
+  weight_decay:
+    1e-4
+  warmup_epoch:
+    0
+num_classes:
+  1000
+epoch:
+  110
+warmup_epoch:
+  0
+expand:
+  300
+amp:
+  True
+ema_momentum:
+  0.999
+ema_ratio:
+  0
+scheduler:
+  type:
+    MultiStepLR
+  milestones:
+    - 40
+    - 70
+    - 100
+  gamma:
+    0.1
+criticion:
+  type:
+    KDLoss
+  temperature:
+    1
+  alpha:
+    1
+augmented_ratio:
+  0
+dfd:
+  patch_size:
+    1
+  feature_size:
+    - 56
+    - 28
+    - 14
+  teacher_channels:
+    - 64
+    - 128
+    - 256
+  student_channels:
+    - 64
+    - 128
+    - 256
+  distill_mode:
+    all
+  swinblocknumber:
+    - 1
+    - 1
+    - 1
+  mode:
+    conv
+only_stage_one:
+  False
+ckpt_root:
+  "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
+local_ckpt_path:
+  "./checkpoints/teacher2"
+
+# left: 1 1 1 1 1 1 right: 1 1 1 0 1 1

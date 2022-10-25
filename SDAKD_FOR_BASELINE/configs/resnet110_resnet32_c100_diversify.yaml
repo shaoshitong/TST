@@ -1,0 +1,134 @@
+
+data:
+  Original_DataLoader_C100
+tarch:
+  resnet110
+arch:
+  resnet32
+loss:
+  KDloss
+tcheckpoint:
+  resnet110.pth
+checkpoint:
+
+accumulate_step:
+  1
+online:
+  False
+SDA:
+  lr:
+    0.01
+  pretrain_path:
+    ./checkpoints/Augmentation/
+  dataset_type:
+    CIFAR
+  solve_number:
+    4
+  criticion_type:
+    NO_CONFIDENCE
+  convertor_training_epoch:
+    - 30
+    - 90
+  convertor_epoch_number:
+    30
+  finetune_teacher:
+    False
+
+img_size:
+  32
+weights:
+  - 1
+  - 0
+augnettype:
+  SmallImageAugNet
+data_path:
+  /home/sst/dataset/c100
+val_ratio:
+  0.05
+num_worker:
+  4
+train_batch_size:
+  256
+test_batch_size:
+  256
+reward_accumuate_step:
+  8
+model_save_path:
+  ./checkpoints/SAC/
+log_each:
+  100
+optimizer:
+  lr:
+    0.1
+  type:
+    SGD
+  weight_decay:
+    1e-4
+  warmup_epoch:
+    0
+num_classes:
+  100
+epoch:
+  240
+warmup_epoch:
+  0
+expand:
+  300
+amp:
+  True
+
+ema_momentum:
+  0.999
+
+ema_ratio:
+  0
+scheduler:
+  type:
+    MultiStepLR
+  milestones:
+    - 150
+    - 180
+    - 210
+  gamma:
+    0.1
+criticion:
+  type:
+    KDLoss
+  temperature:
+    4
+  alpha:
+    0.5
+augmented_ratio:
+  0
+
+dfd:
+  patch_size:
+    4
+  feature_size:
+    - 32
+    - 16
+    - 8
+  teacher_channels:
+    - 16
+    - 32
+    - 64
+  student_channels:
+    - 16
+    - 32
+    - 64
+  distill_mode:
+    all
+  swinblocknumber:
+    - 2
+    - 2
+    - 2
+  mode:
+    conv
+only_stage_one:
+  False
+ckpt_root:
+  "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
+local_ckpt_path:
+  "./checkpoints/teacher2"
+
+# w/o eval LLA benchmark2

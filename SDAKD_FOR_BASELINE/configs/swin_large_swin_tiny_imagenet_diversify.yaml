@@ -1,0 +1,104 @@
+data:
+  Original_DataLoader_ImageNet
+tarch:
+  swin_transformer_large
+arch:
+  swin_transformer_tiny
+loss:
+  KDloss
+tcheckpoint:
+  swin_large_patch4_window7_224_22kto1k.pth
+checkpoint:
+
+online:
+  False
+SDA:
+  lr:
+    0.01
+  pretrain_path:
+    ./checkpoints/Augmentation/
+  dataset_type:
+    IMAGENET
+  solve_number:
+    4
+  criticion_type:
+    NO_CONFIDENCE
+  convertor_training_epoch:
+    - 50
+    - 100
+  convertor_epoch_number:
+    10
+  finetune_teacher:
+    False
+
+img_size:
+  224
+weights:
+  - 1
+  - 0
+augnettype:
+  SmallImageAugNet
+data_path:
+  /home/Bigdata/ilsvrc2012
+val_ratio:
+  0.05
+num_worker:
+  4
+train_batch_size:
+  1024
+test_batch_size:
+  256
+reward_accumuate_step:
+  8
+model_save_path:
+  ./checkpoints/SAC/
+log_each:
+  100
+accumulate_step:
+  8
+optimizer:
+  lr:
+    0.001
+  type:
+    AdamW
+  weight_decay:
+    0.05
+num_classes:
+  1000
+epoch:
+  300
+
+expand:
+  300
+amp:
+  True
+
+ema_momentum:
+  0.999
+
+ema_ratio:
+  0
+scheduler:
+  type:
+    cosine
+  warmup_lr:
+    0.00001
+  warmup_epoch:
+    20
+criticion:
+  type:
+    KDLoss
+  temperature:
+    1
+  alpha:
+    1
+augmented_ratio:
+  0
+only_stage_one:
+  False
+ckpt_root:
+  "https://github.com/shaoshitong/torchdistill/releases/tag/v0.3.3/"
+local_ckpt_path:
+  "./checkpoints/teacher2"
+
+# w/o eval LLA benchmark2
