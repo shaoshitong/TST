@@ -369,7 +369,9 @@ if __name__ == '__main__':
     np.random.seed(seed)
     random.seed(seed)
     cudnn.benchmark = True
+    config.defrost()
     config.DATA.BATCH_SIZE = int(config.DATA.BATCH_SIZE / 2)
+    config.freeze()
     # linear scale the learning rate according to total batch size, may not be optimal
     linear_scaled_lr = config.TRAIN.BASE_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
     linear_scaled_warmup_lr = config.TRAIN.WARMUP_LR * config.DATA.BATCH_SIZE * dist.get_world_size() / 512.0
