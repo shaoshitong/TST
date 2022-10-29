@@ -190,7 +190,7 @@ class SDAGenerator:
             ) = self.quick_step(samples, targets, teacher_model, student_model)
             total_ne_ce_loss += (ne_ce_loss * samples.shape[0])
             total_sample += samples.shape[0]
-        total_ne_ce_loss = (total_ne_ce_loss / total_sample).item()
+        total_ne_ce_loss = (total_ne_ce_loss / total_sample)
         self.scheduler.step(total_ne_ce_loss)
         print(f"total_ne_ce_loss is {total_ne_ce_loss}")
 
