@@ -85,7 +85,6 @@ class Cutout(torch.nn.Module):
         mask[..., upper_coord[0]: lower_coord[0], upper_coord[1]: lower_coord[1]] = 0
         return img * mask
 
-
 class Mulit_Augmentation(nn.Module):
     # TODO: LEARNING SUB POLICIES
     LEARNING_COLOR_LIST = ["Brightness", "Color", "Contrast", "Sharpness", "Posterize", "Solarize"]

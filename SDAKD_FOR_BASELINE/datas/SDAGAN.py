@@ -101,7 +101,6 @@ class AugmentationFeatureEncoder(nn.Module):
         out_feature = feature_tuple[2] + out_feature
         return self.classifier(out_feature)
 
-
 class SDAGenerator:
     def __init__(self, yaml, gpu):
         self.lr = yaml["SDA"]["lr"]
@@ -121,14 +120,17 @@ class SDAGenerator:
                                          lr=0.01,
                                          momentum=0.9)
         self.scheduler = ALRS(self.optimizer)
+        self.scaler = torch.cuda.amp.GradScaler()
         self.num_classes = yaml["num_classes"]
         self.pretrain()
 
     def reset(self):
+        del self.scaler
         del self.optimizer
         del self.scheduler
         self.optimizer = torch.optim.SGD(self.SDA.parameters(), lr=0.01, momentum=0.9)
         self.scheduler = ALRS(self.optimizer)
+        self.scaler = torch.cuda.amp.GradScaler()
 
     def __call__(self, student, teacher, x, y, if_learning=True, if_afe=False):
         augment_x, augment_y = self.step(student, teacher, x, y, if_learning)
@@ -149,7 +151,11 @@ class SDAGenerator:
                 teacher_tuple, teacher_out = teacher(augment_x, is_feat=True)
             loss = self.criticion(student_out, teacher_out, augment_y)
             self.optimizer.zero_grad()
-            loss.backward()
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.SDA.parameters(),10)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             self.loss = loss.item()
             self.optimizer.step()
             # give back

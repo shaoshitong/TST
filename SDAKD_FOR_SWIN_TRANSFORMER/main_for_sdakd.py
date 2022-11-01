@@ -130,7 +130,6 @@ def main(config):
         logger.info(f"number of GFLOPs: {flops / 1e9}")
 
     model.cuda()
-    model_without_ddp = model
 
     # TODO: USE FOR SDAKD
     cwd = os.getcwd()
@@ -146,6 +145,7 @@ def main(config):
     teacher_model = torch.nn.DataParallel(
         teacher_model.cuda(config.LOCAL_RANK), device_ids=[config.LOCAL_RANK],
     )
+    model_without_ddp = [model, sda]
     teacher_model.requires_grad_(False)
     # TODO: END
 
@@ -230,8 +230,8 @@ def train_one_epoch(config, model, teacher_model, sda, data_loader, optimizer, e
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
         samples_aug, targets_aug = sda(model, teacher_model, samples, targets, False, False)
-        samples = torch.cat([samples,samples_aug])
-        targets = torch.cat([targets,targets_aug])
+        samples = torch.cat([samples, samples_aug])
+        targets = torch.cat([targets, targets_aug])
         if mixup_fn is not None:
             samples, targets = mixup_fn(samples, targets)
 

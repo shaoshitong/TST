@@ -18,7 +18,8 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, loss_scaler, logger)
             config.MODEL.RESUME, map_location='cpu', check_hash=True)
     else:
         checkpoint = torch.load(config.MODEL.RESUME, map_location='cpu')
-    msg = model.load_state_dict(checkpoint['model'], strict=False)
+    msg = model[0].load_state_dict(checkpoint['model'], strict=False)
+    model[1].SDA.load_state_dict(checkpoint['sda'], strict=False)
     logger.info(msg)
     max_accuracy = 0.0
     if not config.EVAL_MODE and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
@@ -129,7 +130,8 @@ def load_pretrained(config, model, logger):
 
 
 def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler, loss_scaler, logger):
-    save_state = {'model': model.state_dict(),
+    save_state = {'model': model[0].state_dict(),
+                  'sda': model[1].SDA.state_dict(),
                   'optimizer': optimizer.state_dict(),
                   'lr_scheduler': lr_scheduler.state_dict(),
                   'max_accuracy': max_accuracy,
