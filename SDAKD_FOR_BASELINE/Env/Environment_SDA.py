@@ -19,6 +19,7 @@ from helpers.log import Log
 from losses.DISTKD import DIST
 from datas.SDAGAN import SDAGenerator
 
+
 class LearnDiversifyEnv(object):
     def __init__(
             self,
@@ -76,7 +77,7 @@ class LearnDiversifyEnv(object):
         self.convertor_epoch_number = self.yaml["SDA"]["convertor_epoch_number"]
 
         if "ema_update" in self.yaml and self.yaml["ema_update"] == True:
-            self.ema_model = ModelEMA(self.student_model,decay=0.9999)
+            self.ema_model = ModelEMA(self.student_model, decay=0.9999)
             print("successfully build ema model")
         else:
             self.ema_model = None
@@ -94,7 +95,6 @@ class LearnDiversifyEnv(object):
             self.begin_epoch = self.epoch = dict["epoch"]
             print(f"successfully load checkpoint from {yaml['resume']}")
 
-
     def KDLoss(self, student_output, teacher_output, targets=None, temperature=4):
         soft_loss = F.kl_div(
             torch.log_softmax(student_output / temperature, dim=1),
@@ -107,7 +107,7 @@ class LearnDiversifyEnv(object):
             else 0.0
         )
         if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
-            return hard_loss + 2*(temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
+            return hard_loss + 2 * (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
         else:
             return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
@@ -325,9 +325,9 @@ class LearnDiversifyEnv(object):
 
             else:
                 if "ema_update" in self.yaml and self.yaml["ema_update"] == True:
-                    _, logits = self.ema_model.module(input,is_feat=True)
+                    _, logits = self.ema_model.module(input, is_feat=True)
                 else:
-                    _, logits = self.student_model.module(input,is_feat=True)
+                    _, logits = self.student_model.module(input, is_feat=True)
             torch.cuda.synchronize()
             loss = F.cross_entropy(logits, target, reduction="mean")
             top1, top5 = correct_num(logits, target, topk=(1, 5))
@@ -341,21 +341,23 @@ class LearnDiversifyEnv(object):
                 else:
                     self.log(self.student_model, loss.cpu(), top1.cpu(), top5.cpu())
         if self.gpu == 0:
-            test_acc, test_loss = (
+            test_top1_acc, test_top5_acc, test_loss = (
                 self.log.epoch_state["top_1"] / self.log.epoch_state["steps"],
+                self.log.epoch_state["top_5"] / self.log.epoch_state["steps"],
                 self.log.epoch_state["loss"] / self.log.epoch_state["steps"],
             )
         else:
-            test_acc, test_loss = 0, 0
+            test_top1_acc, test_top5_acc, test_loss = 0, 0, 0
         use_time = round((time.time() - start_time) / 60, 2)
         if self.gpu == 0:
             if if_teacher:
-                print("Teacher's Acc is", test_acc, "%")
+                print("Teacher's Top-1 Acc is", test_top1_acc, "%", "Top-5 Acc is", test_top5_acc)
             else:
+                print("Student's Top-1 Acc is", test_top1_acc, "%", "Top-5 Acc is", test_top5_acc)
                 self.ff.write(
-                    f"epoch:{self.epoch}, test_acc:{test_acc}, test_loss:{test_loss}, min:{use_time}\n"
+                    f"epoch:{self.epoch}, test_top1_acc:{test_top1_acc}, test_top1_acc:{test_top5_acc}, min:{use_time}\n"
                 )
-        return test_acc
+        return test_top1_acc
 
     def scheduler_step(self):
         if isinstance(self.scheduler, torch.optim.lr_scheduler.MultiStepLR):
@@ -374,8 +376,9 @@ class LearnDiversifyEnv(object):
         """
         EVAL TEACHER FIRST
         """
-        # self.run_one_val_epoch(if_teacher=True)
-
+        if self.yaml['eval_only'] == True:
+            self.run_one_val_epoch(if_teacher=False)
+            self.begin_epoch = self.total_epoch
         for i in range(self.begin_epoch, self.total_epoch):
             self.dataloader.sampler.set_epoch(i)
             ttop1, tloss = self.run_one_train_epoch()

@@ -70,11 +70,14 @@ class MobileNetV1(nn.Module):
         for m in self.modules():
             _initialize_weight_goog(m)
 
-    def forward(self, x):
+    def forward(self, x, is_feat=False):
         x = self.model(x)
         x = x.view(-1, 1024)
         x = self.fc(x)
-        return x
+        if is_feat:
+            return 0,x
+        else:
+            return x
 
 def mobilenetv1_imagenet(**kwargs):
     return MobileNetV1(**kwargs)

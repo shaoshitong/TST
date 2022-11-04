@@ -45,6 +45,11 @@ parser.add_argument(
     default="",
     help="resume checkpoint",
 )
+parser.add_argument(
+    "--eval-only",
+    action="store_true",
+    help="if only to eval student",
+)
 args = parser.parse_args()
 
 
@@ -108,6 +113,7 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
         tnet = utils.load_model_from_url(tnet, tcheckpoint_path, local_ckpt_path)
     else:
         raise NotImplementedError("the teacher2's checkpoint file could not be found!")
+    yaml_config["eval_only"] = args.eval_only
     tnet.eval()
     if 'convnext' in yaml_config['tarch'] or 'swin' in yaml_config['tarch']:
         tnet = symbolic_trace(tnet, concrete_args={"is_feat": True})
