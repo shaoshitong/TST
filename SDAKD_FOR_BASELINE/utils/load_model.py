@@ -23,7 +23,7 @@ def load_model(model_dict, model):
 
 
 def load_model_from_url(model, url, local_ckpt_path="./checkpoints/teacher2"):
-    print("local ckpt path is",local_ckpt_path)
+    print("local ckpt path is", local_ckpt_path)
     if "convnext" in local_ckpt_path:
         print("no load checkpoint in there! applying for convnext")
         return model

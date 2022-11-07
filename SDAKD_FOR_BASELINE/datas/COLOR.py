@@ -202,7 +202,7 @@ class ColorAugmentation(nn.Module):
 
 
 class Alignment:
-    def __init__(self, policy_name, img_size, save_path, COLOR, dataset_type,epoch=20):
+    def __init__(self, policy_name, img_size, save_path, COLOR, dataset_type, epoch=20):
         self.policy_name = policy_name
         self.img_size = img_size
         if dataset_type == "CIFAR":
@@ -214,7 +214,7 @@ class Alignment:
         self.color = COLOR(dataset_type=dataset_type).cuda()
         self.epoch = epoch
         self.optimizer = torch.optim.AdamW(self.color.parameters(), 1e-3, weight_decay=0)
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer,gamma=0.999)
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.999)
         self.criticion = nn.MSELoss()
         self.save_path = save_path
         self.tran = transforms.Compose([transforms.Normalize(self.mean, std=self.std)])
@@ -276,7 +276,7 @@ class Alignment:
                 magnitude = (
                     torch.Tensor([magnitude]).to(image.device)[None, ...].expand(image.shape[0], -1)
                 )
-                stn_image = self.color(image, magnitude,False)
+                stn_image = self.color(image, magnitude, False)
                 loss = self.criticion(stn_image, freeze_image)
                 self.optimizer.zero_grad()
                 loss.backward()

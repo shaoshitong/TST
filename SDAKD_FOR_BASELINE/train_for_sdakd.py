@@ -4,7 +4,6 @@ import sys
 
 import numpy as np
 import torch
-from torch.fx import symbolic_trace
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -15,6 +14,7 @@ import torch.utils.data.distributed
 import torchvision
 import torchvision.transforms as transforms
 from omegaconf import OmegaConf
+from torch.fx import symbolic_trace
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import wandb
@@ -67,7 +67,9 @@ def set_random_seed(number=0):
     # torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
     import random
+
     import numpy as np
+
     np.random.seed(number)
     random.seed(number)
 
@@ -96,9 +98,11 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
     set_random_seed(rank + np.random.randint(0, 1000))
     torch.cuda.set_device(gpu)
     yaml_config["train_batch_size"] = int(
-        yaml_config["train_batch_size"] / (ngpus_per_node * yaml_config["accumulate_step"]))
+        yaml_config["train_batch_size"] / (ngpus_per_node * yaml_config["accumulate_step"])
+    )
     yaml_config["test_batch_size"] = int(
-        yaml_config["test_batch_size"] / (ngpus_per_node * yaml_config["accumulate_step"]))
+        yaml_config["test_batch_size"] / (ngpus_per_node * yaml_config["accumulate_step"])
+    )
 
     # TODO: LLA_DFD
     if gpu == 0:
@@ -115,10 +119,11 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
         raise NotImplementedError("the teacher2's checkpoint file could not be found!")
     yaml_config["eval_only"] = args.eval_only
     tnet.eval()
-    if 'convnext' in yaml_config['tarch'] or 'swin' in yaml_config['tarch']:
+    if "convnext" in yaml_config["tarch"] or "swin" in yaml_config["tarch"]:
         tnet = symbolic_trace(tnet, concrete_args={"is_feat": True})
     tnet: nn.Module = torch.nn.DataParallel(
-        tnet.cuda(gpu), device_ids=[gpu],
+        tnet.cuda(gpu),
+        device_ids=[gpu],
     )
     net: nn.Module = DDP(
         getattr(models, yaml_config["arch"])(num_classes=yaml_config["num_classes"]).cuda(gpu),
@@ -126,16 +131,21 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
     )
     if yaml_config["optimizer"]["type"] == "Shampoo":
         from datas.DistillforLargeModel import shampoo
+
         optimizer = shampoo(net.parameters(), lr=yaml_config["optimizer"]["lr"])
     elif yaml_config["optimizer"]["type"] == "AdamW":
-        optimizer = torch.optim.AdamW(net.parameters(),
-                                      lr=yaml_config["optimizer"]["lr"],
-                                      weight_decay=yaml_config["optimizer"]["weight_decay"])
+        optimizer = torch.optim.AdamW(
+            net.parameters(),
+            lr=yaml_config["optimizer"]["lr"],
+            weight_decay=yaml_config["optimizer"]["weight_decay"],
+        )
     elif yaml_config["optimizer"]["type"] == "RMSprop":
-        optimizer = torch.optim.RMSprop(net.parameters(),
-                                        lr=yaml_config["optimizer"]["lr"],
-                                        weight_decay=yaml_config["optimizer"]["weight_decay"],
-                                        momentum=yaml_config["optimizer"]["momentum"])
+        optimizer = torch.optim.RMSprop(
+            net.parameters(),
+            lr=yaml_config["optimizer"]["lr"],
+            weight_decay=yaml_config["optimizer"]["weight_decay"],
+            momentum=yaml_config["optimizer"]["momentum"],
+        )
     else:
         optimizer = getattr(torch.optim, yaml_config["optimizer"]["type"])(
             net.parameters(),
@@ -159,11 +169,14 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
 
     if yaml_config["scheduler"]["type"] == "cosine":
         from datas.DistillforLargeModel import cosinescheduler
-        scheduler = cosinescheduler(optimizer=optimizer,
-                                    epoch=yaml_config["epoch"],
-                                    warmup_lr=yaml_config["scheduler"]["warmup_lr"],
-                                    warmup_epoch=yaml_config["scheduler"]["warmup_epoch"],
-                                    batch_number=len(trainloader))
+
+        scheduler = cosinescheduler(
+            optimizer=optimizer,
+            epoch=yaml_config["epoch"],
+            warmup_lr=yaml_config["scheduler"]["warmup_lr"],
+            warmup_epoch=yaml_config["scheduler"]["warmup_epoch"],
+            batch_number=len(trainloader),
+        )
     else:
         scheduler = getattr(torch.optim.lr_scheduler, yaml_config["scheduler"]["type"])(
             optimizer,

@@ -1,9 +1,10 @@
-import torch,math
+import math
+
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ['mobilenetv1_imagenet']
-
+__all__ = ["mobilenetv1_imagenet"]
 
 
 def _initialize_weight_goog(m):
@@ -32,8 +33,8 @@ class MobileNetV1(nn.Module):
             return nn.Sequential(
                 nn.Conv2d(inp, oup, 3, stride, 1, bias=False),
                 nn.BatchNorm2d(oup),
-                nn.ReLU(inplace=True)
-                )
+                nn.ReLU(inplace=True),
+            )
 
         def conv_dw(inp, oup, stride):
             return nn.Sequential(
@@ -41,12 +42,11 @@ class MobileNetV1(nn.Module):
                 nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False),
                 nn.BatchNorm2d(inp),
                 nn.ReLU(inplace=True),
-
                 # pw
                 nn.Conv2d(inp, oup, 1, 1, 0, bias=False),
                 nn.BatchNorm2d(oup),
                 nn.ReLU(inplace=True),
-                )
+            )
 
         self.model = nn.Sequential(
             conv_bn(ch_in, 32, 2),
@@ -63,7 +63,7 @@ class MobileNetV1(nn.Module):
             conv_dw(512, 512, 1),
             conv_dw(512, 1024, 2),
             conv_dw(1024, 1024, 1),
-            nn.AdaptiveAvgPool2d(1)
+            nn.AdaptiveAvgPool2d(1),
         )
         self.fc = nn.Linear(1024, num_classes)
 
@@ -75,9 +75,10 @@ class MobileNetV1(nn.Module):
         x = x.view(-1, 1024)
         x = self.fc(x)
         if is_feat:
-            return 0,x
+            return 0, x
         else:
             return x
+
 
 def mobilenetv1_imagenet(**kwargs):
     return MobileNetV1(**kwargs)

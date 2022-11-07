@@ -12,27 +12,27 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.transforms import AutoAugmentPolicy
 
-from utils.ema import ModelEMA
 from datas.DistillforLargeModel import mixup
+from datas.SDAGAN import SDAGenerator
 from helpers.correct_num import correct_num
 from helpers.log import Log
 from losses.DISTKD import DIST
-from datas.SDAGAN import SDAGenerator
+from utils.ema import ModelEMA
 
 
 class LearnDiversifyEnv(object):
     def __init__(
-            self,
-            dataloader: DataLoader,
-            testloader: DataLoader,
-            student_model: nn.Module,
-            teacher_model: nn.Module,
-            scheduler: torch.optim.lr_scheduler.MultiStepLR,
-            optimizer: torch.optim.Optimizer,
-            loss: nn.Module,
-            yaml,
-            wandb,
-            gpu,
+        self,
+        dataloader: DataLoader,
+        testloader: DataLoader,
+        student_model: nn.Module,
+        teacher_model: nn.Module,
+        scheduler: torch.optim.lr_scheduler.MultiStepLR,
+        optimizer: torch.optim.Optimizer,
+        loss: nn.Module,
+        yaml,
+        wandb,
+        gpu,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -56,7 +56,7 @@ class LearnDiversifyEnv(object):
         self.done = False
         self.best_acc = 0.0
         self.accumuate_count = 0
-        if 'convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']:
+        if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
             self.mixup = mixup()
         self.scaler = torch.cuda.amp.GradScaler()
         if self.gpu == 0:
@@ -113,24 +113,35 @@ class LearnDiversifyEnv(object):
 
     def DISTLoss(self, student_output, teacher_output, targets=None, temperature=4):
         b = student_output.shape[0]
-        original_soft_loss = F.kl_div(
-            torch.log_softmax(student_output[b // 2:] / temperature, dim=1),
-            torch.softmax(teacher_output[b // 2:] / temperature, dim=1),
-            reduction="batchmean",
-        ) * (temperature ** 2)
+        original_soft_loss = (
+            F.kl_div(
+                torch.log_softmax(student_output[b // 2 :] / temperature, dim=1),
+                torch.softmax(teacher_output[b // 2 :] / temperature, dim=1),
+                reduction="batchmean",
+            )
+            * (temperature ** 2)
+        )
         original_hard_loss = (
-            F.kl_div(torch.log_softmax(student_output[b // 2:], dim=-1), targets[b // 2:], reduction="batchmean")
+            F.kl_div(
+                torch.log_softmax(student_output[b // 2 :], dim=-1),
+                targets[b // 2 :],
+                reduction="batchmean",
+            )
             if targets != None
             else 0.0
         )
-        augment_soft_loss = DIST(beta=1, gamma=1)(student_output[:b // 2], teacher_output[:b // 2])
+        augment_soft_loss = DIST(beta=1, gamma=1)(
+            student_output[: b // 2], teacher_output[: b // 2]
+        )
         return original_hard_loss / 2 + augment_soft_loss / 2 + original_soft_loss / 2
 
     def run_one_train_batch_size(self, batch_idx, indexs, input, target):
         input = input.cuda(self.gpu, non_blocking=True)
         target = target.cuda(self.gpu, non_blocking=True)
         target = target.view(-1)
-        if ('convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']) and input.shape[0] % 2 == 0:
+        if ("convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]) and input.shape[
+            0
+        ] % 2 == 0:
             input, target = self.mixup(input, target)
 
         else:
@@ -149,10 +160,12 @@ class LearnDiversifyEnv(object):
         with torch.cuda.amp.autocast(enabled=True):
             (student_tuple, student_logits) = self.student_model(data_aug, is_feat=True)
             with torch.no_grad():
-                if 'convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']:
+                if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
                     (teacher_tuple, teacher_logits) = self.teacher_model.module(t_data_aug)
                 else:
-                    (teacher_tuple, teacher_logits) = self.teacher_model.module(t_data_aug, is_feat=True)
+                    (teacher_tuple, teacher_logits) = self.teacher_model.module(
+                        t_data_aug, is_feat=True
+                    )
                 # TODO: compute relative loss
                 # print((teacher_logits.argmax(1)==labels.argmax(1)).sum().item()/student_logits.shape[0])
         # TODO: 1, vanilla KD Loss
@@ -163,17 +176,23 @@ class LearnDiversifyEnv(object):
             self.yaml["criticion"]["temperature"],
         )
 
-        aug_stduent_logits_confidence = student_logits[:b // 2].softmax(1)[target.bool()].mean().item()
-        aug_teacher_logits_confidence = teacher_logits[:b // 2].softmax(1)[target.bool()].mean().item()
+        aug_stduent_logits_confidence = (
+            student_logits[: b // 2].softmax(1)[target.bool()].mean().item()
+        )
+        aug_teacher_logits_confidence = (
+            teacher_logits[: b // 2].softmax(1)[target.bool()].mean().item()
+        )
         # TODO: 2. Combine all Loss in stage one
-        loss = (self.weights[0] * vanilla_kd_loss)
+        loss = self.weights[0] * vanilla_kd_loss
         if self.accumuate_count % self.yaml["accumulate_step"] == 0:
             # print(f"Accumulate Count Is {self.accumuate_count}, Zero Grad")
             self.optimizer.zero_grad()
-        self.scaler.scale(loss / self.yaml['accumulate_step']).backward()
+        self.scaler.scale(loss / self.yaml["accumulate_step"]).backward()
         if (self.accumuate_count + 1) % self.yaml["accumulate_step"] == 0:
-            if 'convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']:
-                self.scaler.unscale_(self.optimizer)  # unscale the gradients of optimizer's assigned params in-place
+            if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
+                self.scaler.unscale_(
+                    self.optimizer
+                )  # unscale the gradients of optimizer's assigned params in-place
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), 5)
             self.scaler.step(self.optimizer)
             self.scaler.update()
@@ -203,7 +222,9 @@ class LearnDiversifyEnv(object):
         input = input.float().cuda(self.gpu)
         target = target.cuda(self.gpu)
         target = target.view(-1)
-        if ('convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']) and input.shape[0] % 2 == 0:
+        if ("convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]) and input.shape[
+            0
+        ] % 2 == 0:
             input, target = self.mixup(input, target)
         else:
             target = F.one_hot(target, num_classes=self.num_classes).float()
@@ -213,9 +234,7 @@ class LearnDiversifyEnv(object):
             inputs_max, target_temp, ne_ce_s_loss, ne_ce_t_loss = self.convertor(
                 self.student_model, self.teacher_model, input, target, True, if_afe
             )
-        return (
-            ne_ce_s_loss + ne_ce_t_loss,
-        )
+        return (ne_ce_s_loss + ne_ce_t_loss,)
 
     @torch.no_grad()
     def run_one_val_batch_size(self, input, target):
@@ -234,19 +253,33 @@ class LearnDiversifyEnv(object):
         self.convertor.SDA.train()
         total_ne_ce_loss = 0
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
-            (
-                ne_ce_loss,
-            ) = self.run_one_convertor_batch_size(batch_idx, index, input, target, if_afe)
+            (ne_ce_loss,) = self.run_one_convertor_batch_size(
+                batch_idx, index, input, target, if_afe
+            )
             if self.gpu == 0:
                 self.wandb.log(
                     {
                         "ne_ce_loss": ne_ce_loss,
                         "aug_s_con": self.convertor.aug_stduent_logits_confidence,
                         "aug_t_con": self.convertor.aug_teacher_logits_confidence,
-                        **{f"p_{i}": p for i, p in
-                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
-                        **{f"m_{i}": m for i, m in
-                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().sigmoid().tolist())},
+                        **{
+                            f"p_{i}": p
+                            for i, p in enumerate(
+                                self.convertor.SDA.module.probabilities.data.clone()
+                                .detach()
+                                .sigmoid()
+                                .tolist()
+                            )
+                        },
+                        **{
+                            f"m_{i}": m
+                            for i, m in enumerate(
+                                self.convertor.SDA.module.magnitudes.data.clone()
+                                .detach()
+                                .sigmoid()
+                                .tolist()
+                            )
+                        },
                     },
                     step=self.accumuate_count,
                 )
@@ -255,9 +288,7 @@ class LearnDiversifyEnv(object):
         total_ne_ce_loss = total_ne_ce_loss / len(self.dataloader)
         self.convertor.scheduler.step(total_ne_ce_loss)
         if self.gpu == 0:
-            self.ff.write(
-                f"epoch:{self.epoch}, ne_ce_loss:{total_ne_ce_loss}\n"
-            )
+            self.ff.write(f"epoch:{self.epoch}, ne_ce_loss:{total_ne_ce_loss}\n")
             print(f"when train {'AFE' if if_afe else 'SDA'}, ne_ce_loss is: {total_ne_ce_loss}")
 
     def run_one_train_epoch(self):
@@ -274,8 +305,8 @@ class LearnDiversifyEnv(object):
             for i in range(int(self.convertor_epoch_number)):
                 self.run_one_convertor_epoch(False)
 
-        total_aug_s_con = 0.
-        total_aug_t_con = 0.
+        total_aug_s_con = 0.0
+        total_aug_t_con = 0.0
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
@@ -292,15 +323,29 @@ class LearnDiversifyEnv(object):
                         "ne_ce_loss": ne_ce_loss,
                         "aug_s_con": aug_s_con,
                         "aug_t_con": aug_t_con,
-                        **{f"p_{i}": p for i, p in
-                           enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
-                        **{f"m_{i}": m for i, m in
-                           enumerate(self.convertor.SDA.module.magnitudes.data.clone().detach().sigmoid().tolist())},
+                        **{
+                            f"p_{i}": p
+                            for i, p in enumerate(
+                                self.convertor.SDA.module.probabilities.data.clone()
+                                .detach()
+                                .sigmoid()
+                                .tolist()
+                            )
+                        },
+                        **{
+                            f"m_{i}": m
+                            for i, m in enumerate(
+                                self.convertor.SDA.module.magnitudes.data.clone()
+                                .detach()
+                                .sigmoid()
+                                .tolist()
+                            )
+                        },
                     },
                     step=self.accumuate_count,
                 )
-                total_aug_s_con += (aug_s_con * input.shape[0])
-                total_aug_t_con += (aug_t_con * input.shape[0])
+                total_aug_s_con += aug_s_con * input.shape[0]
+                total_aug_t_con += aug_t_con * input.shape[0]
 
             self.accumuate_count += 1
         if self.gpu == 0:
@@ -333,7 +378,7 @@ class LearnDiversifyEnv(object):
             target = target.cuda()
             torch.cuda.synchronize()
             if if_teacher:
-                if 'convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']:
+                if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
                     _, logits = self.teacher_model.module(input)
                 else:
                     logits = self.teacher_model.module(input)
@@ -391,7 +436,7 @@ class LearnDiversifyEnv(object):
         """
         EVAL TEACHER FIRST
         """
-        if self.yaml['eval_only'] == True:
+        if self.yaml["eval_only"] == True:
             self.run_one_val_epoch(if_teacher=False)
             self.begin_epoch = self.total_epoch
         for i in range(self.begin_epoch, self.total_epoch):

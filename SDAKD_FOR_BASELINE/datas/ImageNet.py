@@ -211,10 +211,13 @@ class PolicyDatasetImageNet(BaseDatasetWrapper):
         )
         return sample, target
 
-def LargeResolution_Dataloader_ImageNet(data_path, num_worker, train_batch_size=64, test_batch_size=64):
+
+def LargeResolution_Dataloader_ImageNet(
+    data_path, num_worker, train_batch_size=64, test_batch_size=64
+):
     """
-      For data parallel
-      """
+    For data parallel
+    """
     trainset = IndexDataset(
         torchvision.datasets.ImageFolder(
             data_path + "/train",

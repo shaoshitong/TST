@@ -18,6 +18,7 @@ from torchvision.transforms.autoaugment import (
 from .COLOR import ColorAugmentation, _apply_op
 from .STN import FreezeSTN
 
+
 def relaxed_bernoulli(logits, temp=0.05):
     u = torch.rand_like(logits, device=logits.device)
     l = torch.log(u) - torch.log(1 - u)
@@ -82,8 +83,9 @@ class Cutout(torch.nn.Module):
         assert mask_width > 0
 
         mask = torch.ones_like(img)
-        mask[..., upper_coord[0]: lower_coord[0], upper_coord[1]: lower_coord[1]] = 0
+        mask[..., upper_coord[0] : lower_coord[0], upper_coord[1] : lower_coord[1]] = 0
         return img * mask
+
 
 class Mulit_Augmentation(nn.Module):
     # TODO: LEARNING SUB POLICIES
@@ -95,8 +97,8 @@ class Mulit_Augmentation(nn.Module):
     def __init__(self, pretrain_path, dataset_type, solve_number):
         super(Mulit_Augmentation, self).__init__()
         self.len_policies = len(self.LEARNING_STN_LIST) + len(self.LEARNING_COLOR_LIST)
-        self.probabilities = Parameter(torch.zeros(
-                self.len_policies + len(self.NO_LEARNING_COLOR_LIST) + len(self.OTHER_LIST))
+        self.probabilities = Parameter(
+            torch.zeros(self.len_policies + len(self.NO_LEARNING_COLOR_LIST) + len(self.OTHER_LIST))
         )
         self.magnitudes = Parameter(torch.zeros(self.len_policies))
         self.pretrain_path = pretrain_path

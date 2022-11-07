@@ -1,10 +1,11 @@
+from copy import deepcopy
+
 import torch
 import torch.nn as nn
-from copy import deepcopy
 
 
 class ModelEMA(nn.Module):
-    """ Model Exponential Moving Average V2
+    """Model Exponential Moving Average V2
     Implemented by: https://github.com/rwightman/pytorch-image-models/tree/master/timm/utils/model_ema.py
 
     Keep a moving average of everything in the model state_dict (parameters and buffers).
@@ -27,6 +28,7 @@ class ModelEMA(nn.Module):
     This class is sensitive where it is initialized in the sequence of model init,
     GPU assignment and distributed training wrappers.
     """
+
     def __init__(self, model, decay=0.9999, device=None):
         super(ModelEMA, self).__init__()
         # make a copy of the model for accumulating moving average of weights
@@ -39,14 +41,15 @@ class ModelEMA(nn.Module):
 
     def _update(self, model, update_fn):
         with torch.no_grad():
-            for ema_v, model_v in zip(self.module.state_dict().values(), model.state_dict().values()):
+            for ema_v, model_v in zip(
+                self.module.state_dict().values(), model.state_dict().values()
+            ):
                 if self.device is not None:
                     model_v = model_v.to(device=self.device)
                 ema_v.copy_(update_fn(ema_v, model_v))
 
     def update(self, model):
-        self._update(model, update_fn=lambda e, m: self.decay * e + (1. - self.decay) * m)
+        self._update(model, update_fn=lambda e, m: self.decay * e + (1.0 - self.decay) * m)
 
     def set(self, model):
         self._update(model, update_fn=lambda e, m: m)
-
