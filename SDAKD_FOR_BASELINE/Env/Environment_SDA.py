@@ -241,6 +241,8 @@ class LearnDiversifyEnv(object):
                 self.wandb.log(
                     {
                         "ne_ce_loss": ne_ce_loss,
+                        "aug_s_con": self.convertor.aug_stduent_logits_confidence,
+                        "aug_t_con": self.convertor.aug_teacher_logits_confidence,
                         **{f"p_{i}": p for i, p in
                            enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
                         **{f"m_{i}": m for i, m in
