@@ -150,7 +150,6 @@ class SDAGenerator:
             self.loss = loss.item()
             self.loss_t = loss_t.item()
             self.loss_s = loss_s.item()
-            self.optimizer.step()
             # give back
             student.train()
             student.requires_grad_(True)
