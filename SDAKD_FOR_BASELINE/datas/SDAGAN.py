@@ -14,21 +14,8 @@ def criticion(type, alpha=1, beta=1):
     def ne_ce_loss(student_out, teacher_out, label):
         t_loss = F.cross_entropy(teacher_out, label)
         s_loss = F.cross_entropy(student_out, label)
-        return alpha * t_loss - beta * s_loss
-
-    def ne_confidence_ce_loss(student_out, teacher_out, label):
-        mask = label.bool()
-        weight = 1 - teacher_out.softmax(1)[mask]
-        t_loss = F.cross_entropy(teacher_out, label, reduction="none")
-        s_loss = F.cross_entropy(student_out, label, reduction="none")
-        loss = ((alpha * t_loss - beta * s_loss) * weight).sum() / weight.sum()
-        return loss
-
-    if type == "NO_CONFIDENCE":
-        return ne_ce_loss
-    else:
-        return ne_confidence_ce_loss
-
+        return alpha * t_loss, - beta * s_loss
+    return ne_ce_loss
 
 class conv_relu_bn(nn.Module):
     def __init__(self, in_channel, out_channel, stride):
@@ -134,9 +121,12 @@ class SDAGenerator:
 
     def __call__(self, student, teacher, x, y, if_learning=True, if_afe=False):
         augment_x, augment_y = self.step(student, teacher, x, y, if_learning)
-        return augment_x, augment_y, self.loss
+        return augment_x, augment_y, self.loss_s,self.loss_t
 
     def step(self, student, teacher, x, y, if_learning):
+        self.loss_t = 0
+        self.loss_s = 0
+
         if not self.yaml["only_stage_one"] and if_learning:
             student.eval()
             student.requires_grad_(False)
@@ -149,14 +139,17 @@ class SDAGenerator:
                 teacher_tuple, teacher_out = teacher(augment_x)
             else:
                 teacher_tuple, teacher_out = teacher(augment_x, is_feat=True)
-            loss = self.criticion(student_out, teacher_out, augment_y)
+            loss_t,loss_s = self.criticion(student_out, teacher_out, augment_y)
             self.optimizer.zero_grad()
+            loss = loss_s+ loss_t
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.SDA.parameters(),10)
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.loss = loss.item()
+            self.loss_t = loss_t.item()
+            self.loss_s = loss_s.item()
             self.optimizer.step()
             # give back
             student.train()
@@ -175,30 +168,36 @@ class SDAGenerator:
 
         # TODO: Learning to diversify
         with torch.cuda.amp.autocast(enabled=True):
-            inputs_max, target_temp, ne_ce_loss = self(
+            inputs_max, target_temp, ne_ce_s_loss,ne_ce_t_loss = self(
                 student_model, teacher_model, input, target, True, False
             )
         return (
-            ne_ce_loss,
+            ne_ce_s_loss,ne_ce_t_loss
         )
 
     def quick_epoch(self, dataloader, teacher_model, student_model,mixup_fn=None):
         student_model.train()
         self.SDA.train()
-        total_ne_ce_loss = 0
+        total_ne_t_ce_loss = 0
+        total_ne_s_ce_loss = 0
         total_sample = 0
         for batch_idx, (samples, targets) in enumerate(dataloader):
             samples = samples.cuda(non_blocking=True)
             targets = targets.cuda(non_blocking=True)
             samples, targets = mixup_fn(samples, targets)
             (
-                ne_ce_loss,
+                ne_t_ce_loss,
+                ne_s_ce_loss
             ) = self.quick_step(samples, targets, teacher_model, student_model)
-            total_ne_ce_loss += (ne_ce_loss * samples.shape[0])
+            total_ne_t_ce_loss += (ne_t_ce_loss * samples.shape[0])
+            total_ne_s_ce_loss += (ne_s_ce_loss * samples.shape[0])
             total_sample += samples.shape[0]
-        total_ne_ce_loss = (total_ne_ce_loss / total_sample)
-        self.scheduler.step(total_ne_ce_loss)
-        print(f"total_ne_ce_loss is {total_ne_ce_loss}")
+        total_ne_t_ce_loss = (total_ne_t_ce_loss / total_sample)
+        total_ne_s_ce_loss = (total_ne_s_ce_loss / total_sample)
+
+        self.scheduler.step(total_ne_s_ce_loss+total_ne_t_ce_loss)
+        print(f"In an epoch, teacher ce loss is {total_ne_t_ce_loss}", f"student ce loss is {total_ne_s_ce_loss}")
+
 
     def quick_multi_epoch(self, dataloader, teacher_model, student_model,epoch_number = 1,mixup_fn=None):
         self.reset()

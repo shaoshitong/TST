@@ -138,10 +138,10 @@ class LearnDiversifyEnv(object):
 
         # TODO: Learning to diversify
         with torch.no_grad(), torch.cuda.amp.autocast(enabled=True):
-            inputs_max, target_temp, ne_ce_loss = self.convertor(
+            inputs_max, target_temp, ne_s_ce_loss, ne_t_ce_loss = self.convertor(
                 self.student_model, self.teacher_model, input, target, False
             )
-
+        ne_ce_loss = ne_s_ce_loss + ne_t_ce_loss
         data_aug = torch.cat([inputs_max, input])
         labels = torch.cat([target_temp, target])
         t_data_aug = data_aug
@@ -162,6 +162,9 @@ class LearnDiversifyEnv(object):
             labels,
             self.yaml["criticion"]["temperature"],
         )
+
+        aug_stduent_logits_confidence = student_logits[:b // 2].softmax(1)[:, target.argmax(1)].mean().item()
+        aug_teacher_logits_confidence = teacher_logits[:b // 2].softmax(1)[:, target.argmax(1)].mean().item()
         # TODO: 2. Combine all Loss in stage one
         loss = (self.weights[0] * vanilla_kd_loss)
         if self.accumuate_count % self.yaml["accumulate_step"] == 0:
@@ -172,7 +175,6 @@ class LearnDiversifyEnv(object):
             if 'convnext' in self.yaml['tarch'] or 'swin' in self.yaml['tarch']:
                 self.scaler.unscale_(self.optimizer)  # unscale the gradients of optimizer's assigned params in-place
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), 5)
-            # print(f"Accumulate Count Is {self.accumuate_count}, Update")
             self.scaler.step(self.optimizer)
             self.scaler.update()
         if "ema_update" in self.yaml and self.yaml["ema_update"] == True:
@@ -192,6 +194,8 @@ class LearnDiversifyEnv(object):
         return (
             top1.cpu().item(),
             vanilla_kd_loss.cpu().item(),
+            aug_teacher_logits_confidence,
+            aug_stduent_logits_confidence,
             ne_ce_loss,
         )
 
@@ -206,11 +210,11 @@ class LearnDiversifyEnv(object):
 
         # TODO: Learning to diversify
         with torch.cuda.amp.autocast(enabled=True):
-            inputs_max, target_temp, ne_ce_loss = self.convertor(
+            inputs_max, target_temp, ne_ce_s_loss, ne_ce_t_loss = self.convertor(
                 self.student_model, self.teacher_model, input, target, True, if_afe
             )
         return (
-            ne_ce_loss,
+            ne_ce_s_loss + ne_ce_t_loss,
         )
 
     @torch.no_grad()
@@ -268,10 +272,14 @@ class LearnDiversifyEnv(object):
             for i in range(int(self.convertor_epoch_number)):
                 self.run_one_convertor_epoch(False)
 
+        total_aug_s_con = 0.
+        total_aug_t_con = 0.
         for batch_idx, (index, input, target) in enumerate(self.dataloader):
             (
                 top1,
                 vanilla_kd_loss,
+                aug_t_con,
+                aug_s_con,
                 ne_ce_loss,
             ) = self.run_one_train_batch_size(batch_idx, index, input, target)
             if self.gpu == 0:
@@ -280,6 +288,8 @@ class LearnDiversifyEnv(object):
                         "top1": top1,
                         "vanilla_kd_loss": vanilla_kd_loss,
                         "ne_ce_loss": ne_ce_loss,
+                        "aug_s_con": aug_s_con,
+                        "aug_t_con": aug_t_con,
                         **{f"p_{i}": p for i, p in
                            enumerate(self.convertor.SDA.module.probabilities.data.clone().detach().sigmoid().tolist())},
                         **{f"m_{i}": m for i, m in
@@ -287,6 +297,9 @@ class LearnDiversifyEnv(object):
                     },
                     step=self.accumuate_count,
                 )
+                total_aug_s_con += (aug_s_con * input.shape[0])
+                total_aug_t_con += (aug_t_con * input.shape[0])
+
             self.accumuate_count += 1
         if self.gpu == 0:
             train_acc, train_loss = (
@@ -298,7 +311,7 @@ class LearnDiversifyEnv(object):
         use_time = round((time.time() - start_time) / 60, 2)
         if self.gpu == 0:
             self.ff.write(
-                f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss}, min:{use_time}\n"
+                f"epoch:{self.epoch}, train_acc:{train_acc}, train_loss:{train_loss},aug_t_con:{total_aug_t_con / len(self.dataloader.dataset)}, aug_s_con:{total_aug_s_con / len(self.dataloader.dataset)}, min:{use_time}\n"
             )
         return train_acc, train_loss
 

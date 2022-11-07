@@ -229,7 +229,7 @@ def train_one_epoch(config, model, teacher_model, sda, data_loader, optimizer, e
     for idx, (samples, targets) in enumerate(data_loader):
         samples = samples.cuda(non_blocking=True)
         targets = targets.cuda(non_blocking=True)
-        samples_aug, targets_aug = sda(model, teacher_model, samples, targets, False, False)
+        samples_aug, targets_aug,_,_ = sda(model, teacher_model, samples, targets, False, False)
         samples = torch.cat([samples, samples_aug])
         targets = torch.cat([targets, targets_aug])
         if mixup_fn is not None:
