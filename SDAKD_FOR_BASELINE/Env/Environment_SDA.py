@@ -163,8 +163,8 @@ class LearnDiversifyEnv(object):
             self.yaml["criticion"]["temperature"],
         )
 
-        aug_stduent_logits_confidence = student_logits[:b // 2].softmax(1)[:, target.argmax(1)].mean().item()
-        aug_teacher_logits_confidence = teacher_logits[:b // 2].softmax(1)[:, target.argmax(1)].mean().item()
+        aug_stduent_logits_confidence = student_logits[:b // 2].softmax(1)[target.bool()].mean().item()
+        aug_teacher_logits_confidence = teacher_logits[:b // 2].softmax(1)[target.bool()].mean().item()
         # TODO: 2. Combine all Loss in stage one
         loss = (self.weights[0] * vanilla_kd_loss)
         if self.accumuate_count % self.yaml["accumulate_step"] == 0:

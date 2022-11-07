@@ -139,8 +139,8 @@ class SDAGenerator:
                 teacher_tuple, teacher_out = teacher(augment_x)
             else:
                 teacher_tuple, teacher_out = teacher(augment_x, is_feat=True)
-            self.aug_stduent_logits_confidence = student_out.softmax(1)[:, y.argmax(1)].mean().item()
-            self.aug_teacher_logits_confidence = teacher_out.softmax(1)[:, y.argmax(1)].mean().item()
+            self.aug_stduent_logits_confidence = student_out.softmax(1)[y.bool()].mean().item()
+            self.aug_teacher_logits_confidence = teacher_out.softmax(1)[y.bool()].mean().item()
             loss_t,loss_s = self.criticion(student_out, teacher_out, augment_y)
             self.optimizer.zero_grad()
             loss = loss_s+ loss_t

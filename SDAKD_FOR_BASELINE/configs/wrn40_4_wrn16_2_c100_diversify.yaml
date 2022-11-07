@@ -42,17 +42,17 @@ SDA:
   dataset_type:
     CIFAR
   solve_number:
-    2
+    4
   criticion_type:
     NO_CONFIDENCE
   convertor_training_epoch:
     - 30
     - 90
   convertor_epoch_number:
-    30
+    10
   finetune_teacher:
     False
-  
+
 optimizer:
   lr:
     0.1

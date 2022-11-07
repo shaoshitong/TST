@@ -15,11 +15,12 @@ accumulate_step:
   1
 online:
   False
+
 SDA:
   lr:
-    0.01
+    1e-3
   pretrain_path:
-    /home/sst/product/SDAKD_FOR_BASELINE/checkpoints/Augmentation/
+    ./checkpoints/Augmentation/
   dataset_type:
     CIFAR
   solve_number:
@@ -27,16 +28,12 @@ SDA:
   criticion_type:
     NO_CONFIDENCE
   convertor_training_epoch:
-    - 12
-    - 52
-    - 102
-    - 152
-    - 182
-    - 212
+    - 30
+    - 90
   convertor_epoch_number:
     10
   finetune_teacher:
-    True
+    False
 img_size:
   32
 weights:
