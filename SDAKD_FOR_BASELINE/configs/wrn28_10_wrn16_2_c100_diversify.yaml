@@ -1,13 +1,13 @@
 data:
   Original_DataLoader_C100
 tarch:
-  wrn_40_4
+  wrn_28_10
 arch:
   wrn_16_2
 loss:
   KDloss
 tcheckpoint:
-  wrn_40_4.pth
+  wrn_28_10.pth
 checkpoint:
 
 online:

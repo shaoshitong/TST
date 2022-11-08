@@ -12,12 +12,12 @@ from datas.pretrain.ImageNet_stn import run_imagenet_stn
 
 def criticion(type, alpha=1, beta=1):
     def ne_ce_loss(student_out, teacher_out, label):
-        t_loss = F.cross_entropy(teacher_out, label)
-        s_loss = F.cross_entropy(student_out, label)
-        return alpha * t_loss, -beta * s_loss
+        label = label.bool()
+        t_loss = -torch.log(teacher_out.softmax(1)[label]).mean()
+        s_loss = -torch.log(1 - student_out.softmax(1)[label] + 1e-8).mean()
+        return alpha * t_loss, beta * s_loss
 
     return ne_ce_loss
-
 
 class conv_relu_bn(nn.Module):
     def __init__(self, in_channel, out_channel, stride):
@@ -151,8 +151,6 @@ class SDAGenerator:
             self.optimizer.zero_grad()
             loss = loss_s + loss_t
             self.scaler.scale(loss).backward()
-            self.scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(self.SDA.parameters(), 10)
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.loss = loss.item()
