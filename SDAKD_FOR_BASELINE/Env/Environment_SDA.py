@@ -22,17 +22,17 @@ from utils.ema import ModelEMA
 
 class LearnDiversifyEnv(object):
     def __init__(
-        self,
-        dataloader: DataLoader,
-        testloader: DataLoader,
-        student_model: nn.Module,
-        teacher_model: nn.Module,
-        scheduler: torch.optim.lr_scheduler.MultiStepLR,
-        optimizer: torch.optim.Optimizer,
-        loss: nn.Module,
-        yaml,
-        wandb,
-        gpu,
+            self,
+            dataloader: DataLoader,
+            testloader: DataLoader,
+            student_model: nn.Module,
+            teacher_model: nn.Module,
+            scheduler: torch.optim.lr_scheduler.MultiStepLR,
+            optimizer: torch.optim.Optimizer,
+            loss: nn.Module,
+            yaml,
+            wandb,
+            gpu,
     ):
         super(LearnDiversifyEnv, self).__init__()
         # TODO: basic settings
@@ -95,7 +95,7 @@ class LearnDiversifyEnv(object):
             self.begin_epoch = self.epoch = dict["epoch"]
             print(f"successfully load checkpoint from {yaml['resume']}")
 
-    def KDLoss(self, student_output, teacher_output, targets=None, temperature=4):
+    def KDLoss(self, student_output, teacher_output, targets=None, alpha=1., beta=1., temperature=4):
         soft_loss = F.kl_div(
             torch.log_softmax(student_output / temperature, dim=1),
             torch.softmax(teacher_output / temperature, dim=1),
@@ -109,22 +109,22 @@ class LearnDiversifyEnv(object):
         if "convnext" in self.yaml["tarch"] or "swin" in self.yaml["tarch"]:
             return hard_loss + 2 * (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
         else:
-            return hard_loss + (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
+            return hard_loss * alpha + beta * (temperature ** 2) * soft_loss * self.yaml["criticion"]["alpha"]
 
     def DISTLoss(self, student_output, teacher_output, targets=None, temperature=4):
         b = student_output.shape[0]
         original_soft_loss = (
-            F.kl_div(
-                torch.log_softmax(student_output[b // 2 :] / temperature, dim=1),
-                torch.softmax(teacher_output[b // 2 :] / temperature, dim=1),
-                reduction="batchmean",
-            )
-            * (temperature ** 2)
+                F.kl_div(
+                    torch.log_softmax(student_output[b // 2:] / temperature, dim=1),
+                    torch.softmax(teacher_output[b // 2:] / temperature, dim=1),
+                    reduction="batchmean",
+                )
+                * (temperature ** 2)
         )
         original_hard_loss = (
             F.kl_div(
-                torch.log_softmax(student_output[b // 2 :], dim=-1),
-                targets[b // 2 :],
+                torch.log_softmax(student_output[b // 2:], dim=-1),
+                targets[b // 2:],
                 reduction="batchmean",
             )
             if targets != None
@@ -170,11 +170,20 @@ class LearnDiversifyEnv(object):
                 # print((teacher_logits.argmax(1)==labels.argmax(1)).sum().item()/student_logits.shape[0])
         # TODO: 1, vanilla KD Loss
         vanilla_kd_loss = self.KDLoss(
-            student_logits.float(),
-            teacher_logits.float(),
-            labels,
-            self.yaml["criticion"]["temperature"],
-        )
+            student_logits.float()[:b//2],
+            teacher_logits.float()[:b//2],
+            labels[:b//2],
+            alpha=1.,
+            beta=1.,
+            temperature=self.yaml["criticion"]["temperature"],
+        ) /2  + self.KDLoss(
+            student_logits.float()[b//2:],
+            teacher_logits.float()[b//2:],
+            labels[b//2:],
+            alpha=1.,
+            beta=1.,
+            temperature=self.yaml["criticion"]["temperature"],
+        ) / 2
 
         aug_stduent_logits_confidence = (
             student_logits[: b // 2].softmax(1)[target.bool()].mean().item()
@@ -266,18 +275,18 @@ class LearnDiversifyEnv(object):
                             f"p_{i}": p
                             for i, p in enumerate(
                                 self.convertor.SDA.module.probabilities.data.clone()
-                                .detach()
-                                .sigmoid()
-                                .tolist()
+                                    .detach()
+                                    .sigmoid()
+                                    .tolist()
                             )
                         },
                         **{
                             f"m_{i}": m
                             for i, m in enumerate(
                                 self.convertor.SDA.module.magnitudes.data.clone()
-                                .detach()
-                                .sigmoid()
-                                .tolist()
+                                    .detach()
+                                    .sigmoid()
+                                    .tolist()
                             )
                         },
                     },
@@ -327,18 +336,18 @@ class LearnDiversifyEnv(object):
                             f"p_{i}": p
                             for i, p in enumerate(
                                 self.convertor.SDA.module.probabilities.data.clone()
-                                .detach()
-                                .sigmoid()
-                                .tolist()
+                                    .detach()
+                                    .sigmoid()
+                                    .tolist()
                             )
                         },
                         **{
                             f"m_{i}": m
                             for i, m in enumerate(
                                 self.convertor.SDA.module.magnitudes.data.clone()
-                                .detach()
-                                .sigmoid()
-                                .tolist()
+                                    .detach()
+                                    .sigmoid()
+                                    .tolist()
                             )
                         },
                     },

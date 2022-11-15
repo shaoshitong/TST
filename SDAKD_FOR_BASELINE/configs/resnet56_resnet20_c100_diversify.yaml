@@ -1,6 +1,6 @@
 
 data:
-  Original_DataLoader_C100
+  LR_Few_Shot_DataLoader_CIFAR100
 tarch:
   resnet56
 arch:
@@ -17,9 +17,9 @@ online:
   False
 SDA:
   lr:
-    0.005
+    0.01
   pretrain_path:
-    /home/sst/product/SDAKD_FOR_BASELINE/checkpoints/Augmentation/
+    ./checkpoints/Augmentation/
   dataset_type:
     CIFAR
   solve_number:
@@ -27,22 +27,17 @@ SDA:
   criticion_type:
     NO_CONFIDENCE
   convertor_training_epoch:
-    - 32
-    - 62
-    - 92
-    - 122
-    - 152
-    - 182
-    - 212
+    - 30
+    - 90
   convertor_epoch_number:
-    5
+    1
   finetune_teacher:
     True
 
 img_size:
   32
 weights:
-  - 0.5
+  - 1
   - 0
 augnettype:
   SmallImageAugNet
@@ -64,7 +59,7 @@ log_each:
   100
 optimizer:
   lr:
-    0.05
+    0.1
   type:
     SGD
   weight_decay:

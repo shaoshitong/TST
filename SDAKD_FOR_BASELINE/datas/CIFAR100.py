@@ -307,3 +307,56 @@ def Original_DataLoader_C100(data_path, num_worker, train_batch_size=64, test_ba
         pin_memory=(torch.cuda.is_available()),
     )
     return trainloader, testloader
+
+def LR_Few_Shot_DataLoader_CIFAR100(data_path, num_worker, train_batch_size=64, test_batch_size=64):
+        trainset = torchvision.datasets.CIFAR100(
+                root=data_path,
+                train=True,
+                download=True,
+                transform=transforms.Compose(
+                    [
+                        transforms.RandomCrop(32, padding=4),
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor(),
+                        transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761]),
+                    ]
+                ),
+            )
+        testset = torchvision.datasets.CIFAR100(
+            root=data_path,
+            train=False,
+            download=True,
+            transform=transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761]),
+                ]
+            ),
+        )
+        from sklearn.model_selection import StratifiedShuffleSplit
+        few_shot_ratio = 0.75
+        labels = trainset.targets
+        ss = StratifiedShuffleSplit(n_splits=1, test_size=1 - few_shot_ratio, random_state=0)
+        train_indices, valid_indices = list(ss.split(np.array(labels)[:, np.newaxis], labels))[0]
+        trainset = IndexDataset(torch.utils.data.Subset(trainset, train_indices))
+        train_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+
+        trainloader = torch.utils.data.DataLoader(
+            trainset,
+            batch_size=train_batch_size,
+            sampler=train_sampler,
+            num_workers=num_worker,
+            pin_memory=(torch.cuda.is_available()),
+        )
+
+        test_sampler = torch.utils.data.distributed.DistributedSampler(testset)
+        testloader = torch.utils.data.DataLoader(
+            testset,
+            batch_size=test_batch_size,
+            sampler=test_sampler,
+            num_workers=num_worker,
+            pin_memory=(torch.cuda.is_available()),
+        )
+        return trainloader, testloader
+
+
