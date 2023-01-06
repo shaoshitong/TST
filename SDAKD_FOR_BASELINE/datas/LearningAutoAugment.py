@@ -285,9 +285,6 @@ class LearningAutoAugment(transforms.AutoAugment):
                 results = self.results
                 labels = self.labels
 
-        # TODO: 使用注意力机制来生成权重，为了计算计算量，我可以使用flowformer?
-        # TODO: 在这里，注意力机制的Batchsize维度应该是第二维度，第一维度才是要注意的地方。
-        # TODO: 但问题在于Flowfromer的输出是要保证和输入value相同的，这点他做不到，实际上我们希望对所有的pixel信息进行编码，或许可以借鉴SKattention?
         results.requires_grad = True
         labels.requires_grad = True
         P, B, C, H, W = results.shape
@@ -312,7 +309,6 @@ class LearningAutoAugment(transforms.AutoAugment):
         attention_vector = attention_vector[randperm].contiguous()  # P,B,1
         attention_vector = attention_vector / (attention_vector.sum(0)) * attention_vector.shape[0]
 
-        # TODO: 解决数值不稳定的问题
         # self.buffer_update(indexs, attention_vector[..., 0].permute(1, 0), epoch)
         # use_attention_vector = self.buffer[indexs].permute(1, 0)[..., None]
         # if epoch % 2 == 0:
@@ -326,7 +322,7 @@ class LearningAutoAugment(transforms.AutoAugment):
         )
         different_vector[-1] = attention_vector[
             -1
-        ]  # TODO:可逆矩阵推导，a1=x1-x2,a2=x2-x3,...,an-1=xn-1-xn,an=xn
+        ]
         result = ((different_vector * results).sum(0)).view(B, C, H, W)
 
         if (indexs == 10).sum().item() != 0:

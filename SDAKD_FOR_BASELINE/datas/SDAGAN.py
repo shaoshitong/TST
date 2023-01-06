@@ -10,7 +10,7 @@ from datas.pretrain.ImageNet_color import run_imagenet_color
 from datas.pretrain.ImageNet_stn import run_imagenet_stn
 
 
-def criticion(type, alpha=1, beta=1):
+def criticion(type, alpha=1., beta=1.):
     def ne_ce_loss(student_out, teacher_out, label):
         label = label.bool()
         t_loss = -torch.log(teacher_out.softmax(1)[label]).mean()

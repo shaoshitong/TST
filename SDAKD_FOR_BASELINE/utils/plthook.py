@@ -196,7 +196,6 @@ class PltAboutHook(object):
         # TODO: pop redundant elements
         self.pop_superfluous_element()
 
-        # TODO: 子图数量就是总的字典键值
         names = self.buffer_dict.keys()
         n = len(names)
 
@@ -204,7 +203,6 @@ class PltAboutHook(object):
             self.x_y_ = self.zys(n)
             self.init_figure()
 
-            # TODO: 同一字典键值的所有输入和输出显示在一张图像中
             for name in names:
                 ax = self.get_subfigure()
                 value = self.buffer_dict[name]
@@ -221,7 +219,6 @@ class PltAboutHook(object):
                 ax.spines["right"].set_visible(False)
                 ax.set_facecolor("white")
                 x = np.arange(len(inputs[0]))
-                # TODO: 循环显示
                 for input in inputs:
                     y = [sy[1] if not self.log else math.log(sy[1] + 1e-8) for sy in input]
                     ax.plot(x, y, "--", linewidth=2, linestyle="dashed")

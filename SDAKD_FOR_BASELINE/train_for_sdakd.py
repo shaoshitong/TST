@@ -85,9 +85,8 @@ def yaml_config_get(args):
 
 
 def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
-    # TODO: NCCL  INIT
     print("Use GPU: {} for training".format(gpu))
-    rank = 0  # 单机
+    rank = 0
     dist_backend = "nccl"
     rank = rank * ngpus_per_node + gpu
     print("world_size:", world_size)
@@ -106,9 +105,7 @@ def main_worker(gpu, yaml_config, ngpus_per_node, world_size, dist_url):
 
     # TODO: LLA_DFD
     if gpu == 0:
-        # os.environ["WANDB_API_KEY"] = "625345833d2e13b7e2c695c406cc01311f39bf40"
-        # os.environ["WANDB_MODE"] = "offline"
-        wandb.init(project="LLA_DFD", entity="seushanshan")
+        wandb.init(project="LLA_DFD", entity="you name")
     tnet = getattr(models, yaml_config["tarch"])(num_classes=yaml_config["num_classes"])
     ROOT = yaml_config["ckpt_root"]
     local_ckpt_path = yaml_config["local_ckpt_path"]

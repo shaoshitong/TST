@@ -292,7 +292,7 @@ class LearnDiversifyEnv(object):
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)  # 2*bs,embedding_dim
         dot_contrast = (contrast_feature @ contrast_feature.T) / temperature
         logits_max, _ = torch.max(dot_contrast, dim=1, keepdim=True)
-        logits = dot_contrast - logits_max.detach()  # all < 0 # 因为对角线上是自己和自己，所以余弦相似度最大
+        logits = dot_contrast - logits_max.detach()
         # tile mask
         mask = mask.repeat(c, c)
         logits_mask = 1 - torch.eye(mask.shape[0]).to(
@@ -302,11 +302,11 @@ class LearnDiversifyEnv(object):
         # compute log_prob
 
         exp_logits = torch.exp(logits) * logits_mask  # no identity
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))  # 已经是论文中所求的结果
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
         # compute mean of log-likelihood over positive
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(
             1
-        )  # 分子都是一对样本具备相同语义且不是同一对样本/分母都是一对样本具备相同语义且不是同一对样本
+        )
         loss = -mean_log_prob_pos
         loss = loss.mean()
         return loss
@@ -412,7 +412,6 @@ class LearnDiversifyEnv(object):
                 student_mu = self.p_mu.module(student_avgpool)
                 student_embedding = self.reparametrize(student_mu, student_logvar)
 
-            # TODO: 1. Club loss (互信息上界，减小增强样本与原始样本相关性)
             augmented_student_logvar = student_logvar[:b]
             augmented_student_mu = student_mu[:b]
             club_loss = self.Club(
@@ -421,10 +420,9 @@ class LearnDiversifyEnv(object):
                 student_embedding[b:],
             )
 
-            # TODO: 3. Task Loss (确保他能够被正确识别，同时非正确类损失具备多样性。)
             student_logits = student_logits.float()
             teacher_logits = teacher_logits.float()
-            # TODO: 仅仅只有二分之一，因此需要扩张
+
             aug_logits, ori_logits = torch.chunk(student_logits, 2, 0)
             t_aug_logits, t_ori_logits = torch.chunk(teacher_logits, 2, 0)
             distance1 = (
